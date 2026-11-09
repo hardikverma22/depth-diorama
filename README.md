@@ -1,54 +1,82 @@
+<div align="center">
+
 # Depth Diorama
 
-Describe a place. Get a seamless illustrated loop that looks like a flat poster, then opens into deep 3D.
+**Describe a place. Get a flat poster that shatters into a 3D world.**
 
-It's a Claude Code skill. There's no 3D software to learn, no timeline to edit and no footage to shoot.
+<img src="demos/whale.gif" alt="A painting of a whale leaping across the moon breaks apart into a glowing town on a mirror" width="100%">
 
-> *"Make a depth diorama of a rainy night market. Vertical, for Reels."*
+*That whale is one painting, split across dozens of buildings more than 100 metres apart.*
 
-## Install
+</div>
 
-Needs Node 20+ and ffmpeg.
+<br>
+
+## Try it
+
+You need Claude Code, Node 20+ and ffmpeg.
 
 ```bash
 git clone https://github.com/hardikverma22/depth-diorama ~/.claude/skills/depth-diorama
 cd ~/.claude/skills/depth-diorama && npm install && node bin/depth-diorama.mjs setup
 ```
 
-Then ask Claude Code for one.
+Then ask Claude Code for one:
 
-## Try a built-in scene
+> Make a depth diorama of a rainy night market, vertical for Reels.
+
+Claude builds the place, checks how it looks and renders the video. No 3D software, no footage, no timeline.
+
+**See it without AI.** This writes one HTML file. Open it and drag the bar slowly:
 
 ```bash
-node bin/depth-diorama.mjs share market
+node bin/depth-diorama.mjs share whale
 ```
 
-That writes one HTML file you can open with a double click. Drag the bar slowly and watch a wall of neon signs pull apart.
+<br>
 
-| Scene | Look | The trick |
-|---|---|---|
-| `pier` | Day | Ten beach huts in one row turn out to be two lines 70 metres long |
-| `station` | Dusk | Eight kiosks in one storefront stretch away down the platform |
-| `market` | Rain | A wall of neon signs splits into a street 60 metres deep |
+## Made with it
+
+<table>
+<tr>
+<td width="33%"><img src="demos/pier.gif" alt="A row of beach huts opens into two lines along a pier"></td>
+<td width="33%"><img src="demos/station.gif" alt="A row of kiosks stretches away down a railway platform"></td>
+<td width="33%"><img src="demos/market.gif" alt="A wall of neon signs pulls apart into a rainy street"></td>
+</tr>
+<tr>
+<td align="center"><b>Pier</b><br>Ten huts in one row are really two long lines</td>
+<td align="center"><b>Station</b><br>One storefront is eight kiosks down a platform</td>
+<td align="center"><b>Night market</b><br>A wall of neon is a street 60 metres deep</td>
+</tr>
+</table>
+
+<br>
+
+## How the trick works
+
+1. **Flatten.** A very long lens from far away removes all sense of depth.
+2. **Hide.** While the picture is flat, objects quietly change position.
+3. **Open.** The camera moves in as the lens widens, and the poster becomes a place.
+
+<br>
 
 ## What you get
 
-- **Any frame shape.** 16:9, 9:16, 1:1 and 4:5 from the same scene, each framed automatically.
-- **One-word looks.** `day`, `dusk`, `night`, `rain`.
-- **Three camera routines.** `reveal`, `snap` and `grand`, computed from the size of your scene.
-- **MP4, WebM, or a page people can drag.**
-- **Checked output.** Every render is measured for a flat flat-shot, real depth, hidden swaps, an invisible loop seam, pops, freezes and flicker. You get a pass or fail report and a contact sheet.
+| | |
+|---|---|
+| **Frame shapes** | 16:9, 9:16, 1:1 and 4:5, each framed automatically |
+| **Looks** | `day`, `dusk`, `night` or `rain`, in one word |
+| **Output** | MP4, WebM, or a draggable HTML page |
+| **Quality checks** | Every render is tested for flatness, real depth, loop seams, pops, freezes and flicker |
+
+<br>
 
 ## Commands
 
 ```
-setup      install the render browser          stills    a picture of each key moment
-doctor     check this machine can render       preview   fast half-size video, with checks
-list       show the built-in scenes            render    full-quality video, with all checks
-new        start a scene from the template     verify    check a scene or any video
-share      write a draggable HTML player
+stills    a picture of each key moment       share     a draggable HTML player
+preview   a fast half-size video             verify    check a scene or any video
+render    a full-quality video               doctor    check this machine can render
 ```
-
-Run the tests with `npm test`.
 
 MIT licensed.

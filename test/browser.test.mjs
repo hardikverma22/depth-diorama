@@ -12,8 +12,8 @@ const passes = (r) => assert.equal(r.code, 0, r.all);
 const LAUNCH = process.platform === "darwin" ? ["--use-angle=metal", "--ignore-gpu-blocklist"] : [];
 
 describe("positive: built-in scenes pass every check", () => {
-  for (const s of ["pier", "station", "market"]) it(s, () => passes(verifyReport(s)));
-  for (const s of ["pier", "station", "market"]) for (const aspect of ["9:16", "1:1", "4:5"]) it(`${s} at ${aspect}`, () => passes(verifyReport(s, ["--aspect", aspect])));
+  for (const s of ["pier", "station", "market", "whale"]) it(s, () => passes(verifyReport(s)));
+  for (const s of ["pier", "station", "market", "whale"]) for (const aspect of ["9:16", "1:1", "4:5"]) it(`${s} at ${aspect}`, () => passes(verifyReport(s, ["--aspect", aspect])));
 });
 
 describe("positive: options", () => {

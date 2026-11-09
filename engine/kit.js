@@ -58,8 +58,8 @@ export function createKit({ THREE, scene, look }) {
 
     // ---- paint ----
     /** A material painted on a canvas. Detail painted on one surface cannot flicker at long range. */
-    paint(w, h, fn, { repeat = [1, 1], lit = null } = {}) {
-      return surface({ map: canvasTexture(w, h, fn), repeat, lit: lit ? canvasTexture(w, h, lit) : null });
+    paint(w, h, fn, { repeat = [1, 1], lit = null, poster = false } = {}) {
+      return surface({ map: canvasTexture(w, h, fn), repeat, lit: lit ? canvasTexture(w, h, lit) : null, glow: poster ? 0.6 : 0 });
     },
     /** A sign whose text always fits. */
     sign(text, w, h, { bg = "#D8452E", fg = "#FFF7E6", font = FONT, weight = 800, glow = 0, border = null, vertical = false } = {}) {

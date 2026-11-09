@@ -58,7 +58,7 @@ Positions are `[x, y, z]` with y at the object's base (`ball` is centred). Floor
 
 **Shapes:** `k.box(w, h, d, c, pos, { ry, rx, rz, glow })`, `k.cyl(r, h, c, pos, { top, seg, glow })`, `k.cone(r, h, c, pos)`, `k.ball(r, c, pos, { glow })`, `k.dome(r, c, pos)`, `k.roof(w, rise, d, c, pos)`, `k.bar(a, b, r, c)`, `k.group(fn, pos, ry)`.
 
-**Paint:** `k.paint(w, h, (g, w, h) => {...}, { repeat, lit })` paints with the canvas API; `lit` paints what glows after dark. `k.sign(text, w, h, { bg, fg, font, glow, border, vertical })` makes text that always fits. `k.board(text, w, h, pos, opts)` places a sign.
+**Paint:** `k.paint(w, h, (g, w, h) => {...}, { repeat, lit })` paints with the canvas API; `lit` paints what glows after dark. `poster: true` makes self-lit paint with no ink or shadow, for one image split across many objects. `k.sign(text, w, h, { bg, fg, font, glow, border, vertical })` makes text that always fits. `k.board(text, w, h, pos, opts)` places a sign.
 
 **World:** `k.ground(w, d, c, pos)`, `k.pool([x, y, z], radius, color, strength)` for coloured light (16 at most).
 

@@ -139,11 +139,12 @@ const COMPOSITE_FRAG = /* glsl */ `
     float fineFade = 1.0 - smoothstep(0.02, 0.055, foot);
     float colorInk = colorEdge * fineFade * (isSky ? 0.0 : (N.y > 0.7 ? 0.45 : 0.9)) * (1.0 - glow);
     float ink = max(smoothstep(0.34, 0.62, e), smoothstep(0.34, 0.62, colorInk) * (N.y > 0.7 ? 0.5 : 1.0));
-    c = mix(c, uInk, ink * (glow > 0.5 ? 0.35 : 0.94));
+    bool poster = abs(glow - 0.6) < 0.02;                            // poster paint: no ink, so slices join without a seam
+    c = mix(c, uInk, ink * (poster ? 0.0 : (glow > 0.5 ? 0.35 : 0.94)));
     if (uBloom > 0.0) {
       vec3 sum = vec3(0.0);
       for (int k = 0; k < 18; k++) { float a = float(k) * 2.39996, r = (4.0 + float(k) * 2.6) * unit;
-        vec4 g = texture(tA, vUv + vec2(cos(a), sin(a)) * r / res); sum += g.rgb * g.a * (1.0 - float(k) / 22.0); }
+        vec4 g = texture(tA, vUv + vec2(cos(a), sin(a)) * r / res); sum += g.rgb * (abs(g.a - 0.6) < 0.02 ? 0.0 : g.a) * (1.0 - float(k) / 22.0); }
       c += sum * 0.03 * uBloom;
     }
     float lum = dot(c, vec3(0.2126, 0.7152, 0.0722)); c = max(mix(vec3(lum), c, uSat), 0.0);

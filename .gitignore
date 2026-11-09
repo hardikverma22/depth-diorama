@@ -1,0 +1,9 @@
+node_modules/
+out/
+*.part-*
+.DS_Store
+# Render reports hold local file paths; contact sheets and full-size finals are large.
+*-report.json
+*-sheet.png
+demos/*-final.mp4
+.impeccable/

@@ -1,6 +1,6 @@
 # Films from a picture
 
-<img src="demos/valley.gif" alt="A still photo of a misty valley at sunrise; the camera glides forward past the grass and over the river" width="100%">
+<img src="https://github.com/user-attachments/assets/d37164c1-548e-473a-af28-c721189703ac" alt="A still photo of a misty valley at sunrise; the camera glides forward past the grass and over the river" width="100%">
 
 *One ordinary photo, filmed. The valley photo is from Unsplash.*
 

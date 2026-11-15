@@ -57,7 +57,7 @@ describe("negative: broken scene source", () => {
 describe("negative: machine not ready", () => {
   it("doctor reports missing ffmpeg", () => { const r = cli(["doctor"], { env: { FFMPEG: "/nope/ffmpeg" } }); assert.equal(r.code, 3, r.all); assert.match(r.out, /FAIL\s+ffmpeg/); assert.match(r.out, /brew install ffmpeg/); });
   it("rendering explains missing ffmpeg", () => { const r = cli(["preview", "pier"], { env: { FFMPEG: "/nope/ffmpeg" } }); assert.equal(r.code, 3, r.all); assert.match(r.all, /ffmpeg was not found/); });
-  it("rendering explains a missing browser", () => { const r = cli(["stills", "pier"], { env: { PLAYWRIGHT_BROWSERS_PATH: tempDir("nobrowser") } }); assert.equal(r.code, 3, r.all); assert.match(r.all, /setup/); assert.doesNotMatch(r.all, /╔/); });
+  it("rendering explains a missing browser when automatic setup is off", () => { const r = cli(["stills", "pier"], { env: { PLAYWRIGHT_BROWSERS_PATH: tempDir("nobrowser"), DEPTH_DIORAMA_NO_INSTALL: "1" } }); assert.equal(r.code, 3, r.all); assert.match(r.all, /setup/); assert.doesNotMatch(r.all, /╔/); });
   it("doctor explains a missing browser", () => { const r = cli(["doctor"], { env: { PLAYWRIGHT_BROWSERS_PATH: tempDir("nobrowser") } }); assert.equal(r.code, 3, r.all); assert.match(r.out, /FAIL\s+Render browser/); });
 });
 

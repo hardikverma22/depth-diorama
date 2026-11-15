@@ -11,7 +11,7 @@ Nothing is needed from the user except the idea: no photos, no 3D models. You ar
 
 **The premise.** A very long lens flattens a deep scene into something that looks like a printed poster. Then the camera moves in while the lens widens, and the poster opens into a world. Every film starts and ends on that poster, so it loops.
 
-Run every command from this skill's folder, as `node bin/depth-diorama.mjs <command>`. First use: `npm install`, then `setup`. If anything reports a machine problem, run `doctor`.
+Run every command from this skill's folder, as `node bin/depth-diorama.mjs <command>`. There is no install step: the first command installs the packages and a headless browser it needs (about a minute, once; tell the user it is a one-time setup). It needs Node 20+ and ffmpeg; if anything reports a machine problem, run `doctor` and follow what it says.
 
 ## Workflow
 

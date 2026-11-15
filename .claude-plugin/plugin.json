@@ -1,0 +1,11 @@
+{
+  "name": "depth-diorama",
+  "displayName": "Depth Diorama",
+  "version": "1.0.0",
+  "description": "Type a sentence, get a looping illustrated film with a real moving camera. The agent writes a 3D scene; the engine films and checks it.",
+  "author": { "name": "Hardik Verma", "url": "https://github.com/hardikverma22" },
+  "homepage": "https://github.com/hardikverma22/depth-diorama",
+  "repository": "https://github.com/hardikverma22/depth-diorama",
+  "license": "MIT",
+  "keywords": ["video", "animation", "3d", "illustration", "reels", "motion-design", "three.js"]
+}

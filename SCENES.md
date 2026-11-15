@@ -10,7 +10,7 @@ Run every command from this skill's folder, as `node bin/depth-diorama.mjs <comm
 
 ## Workflow
 
-1. **First use:** run `npm install`, then `setup`. If anything later reports a machine problem, run `doctor`.
+1. **First use:** nothing to install; the first command sets itself up (about a minute, once). If anything reports a machine problem, run `doctor`.
 2. **Pin down the brief.** Ask only what you cannot decide: the place, the look, the frame shape and any text or brand name it must show. Default to 16:9 and the look that suits the place. For Reels, TikTok or Shorts use 9:16.
 3. **`new <name> --look <look>`**, then edit `scenes/<name>/scene.js`. Design the illusion first (see below).
 4. **`stills <name>`**, and look at them. Name the three weakest areas of each picture and fix them. Repeat until it looks finished. First versions always look empty.

@@ -1,0 +1,12 @@
+{
+  "name": "depth-diorama",
+  "description": "Depth Diorama: looping illustrated films from a sentence.",
+  "owner": { "name": "Hardik Verma", "url": "https://github.com/hardikverma22" },
+  "plugins": [
+    {
+      "name": "depth-diorama",
+      "source": "./",
+      "description": "Type a sentence, get a looping illustrated film with a real moving camera."
+    }
+  ]
+}

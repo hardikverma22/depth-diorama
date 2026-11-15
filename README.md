@@ -46,12 +46,27 @@ Every film opens as a flat illustrated poster. A very long lens makes the deep s
 
 ## Try it
 
-You need Claude Code, Node 20+ and ffmpeg.
+You need [Claude Code](https://claude.com/claude-code), [Node 20+](https://nodejs.org) and [ffmpeg](https://ffmpeg.org/download.html).
+
+**Install as a Claude Code plugin** (recommended; updates with `claude plugin update`). Inside Claude Code:
+
+```
+/plugin install depth-diorama --marketplace hardikverma22/depth-diorama
+```
+
+Or from your shell:
 
 ```bash
-git clone https://github.com/hardikverma22/depth-diorama ~/.claude/skills/depth-diorama
-cd ~/.claude/skills/depth-diorama && npm install && node bin/depth-diorama.mjs setup
+claude plugin install depth-diorama --marketplace hardikverma22/depth-diorama
 ```
+
+**Or install as a plain skill** with the cross-agent [skills](https://github.com/vercel-labs/skills) CLI:
+
+```bash
+npx skills add hardikverma22/depth-diorama -g
+```
+
+There is no setup step. The first time it runs, it installs its packages and a headless browser by itself (about a minute, once).
 
 Then ask Claude Code:
 
@@ -80,9 +95,9 @@ Claude builds the scene, looks at stills, fixes what is weak, and only then rend
 
 <table>
 <tr>
-<td width="33%"><img src="demos/pier.gif" alt="A row of beach huts opens into two lines along a pier"></td>
-<td width="33%"><img src="demos/station.gif" alt="A row of kiosks stretches away down a railway platform"></td>
-<td width="33%"><img src="demos/market.gif" alt="A wall of neon signs pulls apart into a rainy street"></td>
+<td width="33%"><img src="https://github.com/user-attachments/assets/8b198583-74d2-47a2-a425-f3786ad66fcb" alt="A row of beach huts opens into two lines along a pier"></td>
+<td width="33%"><img src="https://github.com/user-attachments/assets/0b14e33d-548b-4f8e-a86b-617cd1a981a0" alt="A row of kiosks stretches away down a railway platform"></td>
+<td width="33%"><img src="https://github.com/user-attachments/assets/a7fd0f5f-1b27-44e9-9729-331f8d522ff1" alt="A wall of neon signs pulls apart into a rainy street"></td>
 </tr>
 </table>
 

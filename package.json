@@ -15,10 +15,12 @@
     "node": ">=20"
   },
   "dependencies": {
-    "@huggingface/transformers": "3.8.1",
     "esbuild": "0.25.12",
     "playwright": "1.60.0",
     "three": "0.170.0"
   },
-  "license": "MIT"
+  "license": "MIT",
+  "pictureDependencies": {
+    "@huggingface/transformers": "3.8.1"
+  }
 }

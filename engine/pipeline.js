@@ -6,25 +6,29 @@ THREE.ColorManagement.enabled = false;   // everything is authored and composite
 export const shared = { windows: { value: 0 } };
 
 const FLAT_VERT = /* glsl */ `
-  out vec2 vUv; out vec3 vN;
-  uniform vec2 uRepeat;
+  out vec2 vUv; out vec3 vN; out vec3 vTint;
+  uniform vec2 uRepeat, uOffset;
   void main() {
     vec4 p = vec4(position, 1.0); vec3 n = normal;
     #ifdef USE_INSTANCING
       p = instanceMatrix * p; n = mat3(instanceMatrix) * n;
     #endif
-    vN = mat3(modelMatrix) * n; vUv = uv * uRepeat;
+    vTint = vec3(1.0);
+    #ifdef USE_INSTANCING_COLOR
+      vTint = instanceColor;
+    #endif
+    vN = mat3(modelMatrix) * n; vUv = uv * uRepeat + uOffset;
     gl_Position = projectionMatrix * viewMatrix * modelMatrix * p;
   }`;
 const FLAT_FRAG = /* glsl */ `
   precision highp float;
-  in vec2 vUv; in vec3 vN;
+  in vec2 vUv; in vec3 vN; in vec3 vTint;
   layout(location = 0) out vec4 oAlbedo;
   layout(location = 1) out vec4 oNormal;
   uniform vec3 uColor; uniform sampler2D uMap, uLit;
   uniform float uHasMap, uHasLit, uGlow, uWindows;
   void main() {
-    vec3 c = uColor; float g = uGlow;
+    vec3 c = uColor * vTint; float g = uGlow;
     if (uHasMap > 0.5) c *= texture(uMap, vUv).rgb;
     if (uHasLit > 0.5) { vec4 t = texture(uLit, vUv); float m = t.a * uWindows; c = mix(c, t.rgb, m); g = max(g, m); }
     vec3 N = normalize(vN); if (!gl_FrontFacing) N = -N;
@@ -36,7 +40,7 @@ export function surface({ color = "#ffffff", map = null, lit = null, glow = 0, r
   return new THREE.ShaderMaterial({
     glslVersion: THREE.GLSL3, vertexShader: FLAT_VERT, fragmentShader: FLAT_FRAG, side: THREE.DoubleSide,
     uniforms: {
-      uColor: { value: new THREE.Color(color) }, uMap: { value: map }, uLit: { value: lit }, uRepeat: { value: new THREE.Vector2(...repeat) },
+      uColor: { value: new THREE.Color(color) }, uMap: { value: map }, uLit: { value: lit }, uRepeat: { value: new THREE.Vector2(...repeat) }, uOffset: { value: new THREE.Vector2() },
       uHasMap: { value: map ? 1 : 0 }, uHasLit: { value: lit ? 1 : 0 }, uGlow: { value: glow }, uWindows: shared.windows,
     },
   });
@@ -51,7 +55,7 @@ const COMPOSITE_FRAG = /* glsl */ `
   uniform vec3 uShade, uInk, uHaze, uTint; uniform float uHatch, uHazeAmount, uBloom, uWet, uSat, uContrast, uVignette, uHasReflect;
   uniform vec3 sZenith, sMid, sHorizon, sCloud, sCloudShade; uniform float sClouds, sStars;
   uniform vec2 stageCenter; uniform float stageRadius, poolCount;
-  uniform vec4 poolPos[16]; uniform vec3 poolColor[16];
+  uniform vec4 poolPos[32]; uniform vec3 poolColor[32];
 
   float hash(vec2 p) { return fract(sin(dot(p, vec2(41.3, 289.1))) * 29341.77); }
   float noise(vec2 p) { vec2 i = floor(p), f = fract(p); f = f * f * (3.0 - 2.0 * f);
@@ -69,7 +73,11 @@ const COMPOSITE_FRAG = /* glsl */ `
     float cloud = smoothstep(edge, edge + 0.012, n) * band;
     vec3 cc = mix(sCloudShade, sCloud, smoothstep(edge + 0.075, edge + 0.087, n));
     c = mix(c, cc, cloud * 0.92);
-    if (sStars > 0.0) { vec2 g = floor(dir.xz / (e + 0.25) * 170.0); c += step(0.9972, hash(g)) * smoothstep(0.2, 0.5, e) * (1.0 - cloud) * sStars; }
+    if (sStars > 0.0) {                                                // stars stay small dots on any lens, even the long flat one
+      vec2 sp = dir.xz / (e + 0.25) * 170.0, g = floor(sp), f = fract(sp) - 0.5;
+      float cellPx = (e + 0.25) / 170.0 / max(pixelAngle, 1e-7), dotMask = cellPx < 2.5 ? 1.0 : smoothstep(1.4, 0.5, length(f) * cellPx);
+      c += step(0.9972, hash(g)) * dotMask * smoothstep(0.2, 0.5, e) * (1.0 - cloud) * sStars;
+    }
     return c;
   }
 
@@ -117,8 +125,14 @@ const COMPOSITE_FRAG = /* glsl */ `
         }
         vec3 pools = vec3(0.0);
         for (int i = 0; i < int(poolCount); i++) {
-          float k = 1.0 - clamp(length(P - poolPos[i].xyz) / poolPos[i].w, 0.0, 1.0);
-          pools += poolColor[i] * smoothstep(0.0, 0.08, k) * (0.45 + 0.55 * smoothstep(0.34, 0.42, k));
+          float r = poolPos[i].w;
+          if (r > 0.0) {
+            float k = 1.0 - clamp(length(P - poolPos[i].xyz) / r, 0.0, 1.0);
+            pools += poolColor[i] * smoothstep(0.0, 0.08, k) * (0.45 + 0.55 * smoothstep(0.34, 0.42, k));
+          } else {                                                       // a point light: soft falloff, brighter on faces turned to it
+            vec3 L = poolPos[i].xyz - P; float dl = length(L), k = 1.0 - clamp(dl / -r, 0.0, 1.0);
+            pools += poolColor[i] * k * k * (0.3 + 0.7 * max(dot(N, L / max(dl, 1e-3)), 0.0)) * 1.6;
+          }
         }
         c += alb.rgb * pools;
       }
@@ -183,7 +197,7 @@ export class Pipeline {
       uSat: { value: look.saturation }, uContrast: { value: look.contrast }, uVignette: { value: look.vignette }, uHasReflect: { value: this.useReflect ? 1 : 0 },
       sZenith: v3(look.sky.zenith), sMid: v3(look.sky.mid), sHorizon: v3(look.sky.horizon), sCloud: v3(look.sky.cloud), sCloudShade: v3(look.sky.cloudShade), sClouds: { value: look.sky.clouds }, sStars: { value: look.sky.stars },
       stageCenter: { value: new THREE.Vector2() }, stageRadius: { value: 50 }, poolCount: { value: 0 },
-      poolPos: { value: Array.from({ length: 16 }, () => new THREE.Vector4()) }, poolColor: { value: Array.from({ length: 16 }, () => new THREE.Vector3()) },
+      poolPos: { value: Array.from({ length: 32 }, () => new THREE.Vector4()) }, poolColor: { value: Array.from({ length: 32 }, () => new THREE.Vector3()) },
     };
     this.compositeScene = quadScene(new THREE.ShaderMaterial({ glslVersion: THREE.GLSL3, vertexShader: QUAD_VERT, fragmentShader: COMPOSITE_FRAG, uniforms: this.u, depthTest: false, depthWrite: false }));
     this.addScene = quadScene(quadMat("uniform sampler2D t; uniform float w; void main() { o = vec4(texture(t, vUv).rgb * w, 1.0); }", { t: { value: this.frame.texture }, w: { value: 1 } }, { transparent: true, blending: THREE.CustomBlending, blendSrc: THREE.OneFactor, blendDst: THREE.OneFactor, blendEquation: THREE.AddEquation }));
@@ -199,7 +213,7 @@ export class Pipeline {
 
   setStage(center, radius, pools) {
     this.u.stageCenter.value.set(center.x, center.z); this.u.stageRadius.value = radius;
-    const list = pools.slice(0, 16);
+    const list = pools.slice(0, 32);
     this.u.poolCount.value = list.length;
     list.forEach((p, i) => { this.u.poolPos.value[i].set(p.x, p.y, p.z, p.radius); this.u.poolColor.value[i].set(...p.rgb); });
   }
@@ -227,6 +241,41 @@ export class Pipeline {
     });
     const mesh = new THREE.Mesh(geo, material); mesh.frustumCulled = false;
     this.fx = new THREE.Scene(); this.fx.add(mesh);
+  }
+
+  /** Particles drawn after the inked picture, depth-tested by hand against the scene, so they never get outlines. */
+  addParticles(p, b) {
+    const geo = new THREE.InstancedBufferGeometry(), quad = new THREE.PlaneGeometry(1, 1);
+    geo.index = quad.index; geo.setAttribute("position", quad.attributes.position);
+    const [x0, x1, z0, z1] = p.area ?? [b.xmin - 6, b.xmax + 6, b.zmin - 6, b.zmax + 8], [y0, y1] = p.height ?? [0, Math.max(20, b.top + 6)];
+    const seeds = new Float32Array(p.count * 4); let s = p.seed;
+    const rnd = () => { s = (s * 48271) % 2147483647; return s / 2147483647; };
+    for (let i = 0; i < p.count; i++) { seeds[i * 4] = x0 + rnd() * (x1 - x0); seeds[i * 4 + 1] = rnd(); seeds[i * 4 + 2] = z0 + rnd() * (z1 - z0); seeds[i * 4 + 3] = rnd(); }
+    geo.setAttribute("seed", new THREE.InstancedBufferAttribute(seeds, 4));
+    const material = new THREE.ShaderMaterial({
+      glslVersion: THREE.GLSL3, transparent: true, depthTest: false, depthWrite: false, side: THREE.DoubleSide,
+      blending: p.glow ? THREE.AdditiveBlending : THREE.NormalBlending,
+      uniforms: { phase: this.u.phase, tD: this.u.tD, res: this.u.res, pixelAngle: this.u.pixelAngle,
+        fall: { value: p.fall }, sway: { value: p.sway }, drift: { value: p.drift }, size: { value: p.size }, opacity: { value: p.opacity },
+        y0: { value: y0 }, y1: { value: y1 }, color: { value: new THREE.Vector3(...p.rgb) }, glow: { value: p.glow ? 1 : 0 } },
+      vertexShader: `in vec4 seed; uniform float phase, fall, sway, drift, size, opacity, y0, y1, pixelAngle; out float vAlpha; out float vDepth; out vec2 vUv;
+        void main() { float speed = 1.0 + floor(seed.w * 2.0);
+          float y = y0 + mod(seed.y - phase * fall * speed, 1.0) * (y1 - y0);
+          float sw = sin(6.2831853 * (phase * sway * speed + seed.w * 7.0)) * drift;
+          vec3 root = vec3(seed.x + sw, y, seed.z + sw * 0.6), toCam = cameraPosition - root;
+          vec3 side = normalize(cross(vec3(0, 1, 0), toCam)), up = normalize(cross(toCam, side));
+          float foot = length(toCam) * pixelAngle, w = max(size, foot * 1.6);
+          vAlpha = opacity * clamp(size / w, 0.15, 1.0); vUv = position.xy + 0.5;
+          vec4 clip = projectionMatrix * viewMatrix * vec4(root + (side * position.x + up * position.y) * w, 1.0);
+          vDepth = clip.z / clip.w * 0.5 + 0.5; gl_Position = clip; }`,
+      fragmentShader: `precision highp float; in float vAlpha; in float vDepth; in vec2 vUv; out vec4 o; uniform sampler2D tD; uniform vec2 res; uniform vec3 color; uniform float glow;
+        void main() { if (texture(tD, gl_FragCoord.xy / res).r < vDepth) discard;
+          float a = smoothstep(0.5, 0.28, length(vUv - 0.5)) * vAlpha; if (a < 0.003) discard;
+          o = glow > 0.5 ? vec4(color * a, 1.0) : vec4(color, a); }`,
+    });
+    const mesh = new THREE.Mesh(geo, material); mesh.frustumCulled = false;
+    if (!this.fx) this.fx = new THREE.Scene();
+    this.fx.add(mesh);
   }
 
   renderReflection(scene, camera, grounds) {

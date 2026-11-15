@@ -1,14 +1,70 @@
 // The scene-building vocabulary. All sizes are metres, +y is up, the long axis runs towards -z.
 // A position [x, y, z] means the object's base sits at y, except ball() which is centred.
 import { surface } from "./pipeline.js";
-import { seeded, fract, lerp, tileLayout } from "./math.js";
+import { seeded, fract, lerp, clamp, curve, tileLayout } from "./math.js";
 
 const FONT = '"Helvetica Neue", Helvetica, Arial, "Hiragino Sans", sans-serif';
 const hexRgb = (h) => { const n = parseInt(h.slice(1), 16); return [(n >> 16 & 255) / 255, (n >> 8 & 255) / 255, (n & 255) / 255]; };
 
-export function createKit({ THREE, scene, look }) {
+export function createKit({ THREE, scene, look, aspect = 16 / 9, frame = null }) {
   let parent = scene;
-  const rnd = seeded(11), cache = new Map(), swaps = [], ticks = [], dynamic = [], pools = [], warnings = [];
+  const rnd = seeded(11), cache = new Map(), swaps = [], ticks = [], dynamic = [], pools = [], warnings = [], pending = [];
+  let usesPoster = false;
+  const people = []; let crowdParts = null; const particles = [];
+  // One instanced mesh per body part for everyone in the scene: the part's shape, where it hangs, and which colour it takes.
+  const PARTS = [
+    { geo: () => new THREE.CylinderGeometry(0.2, 0.17, 0.56, 12).translate(0, 0.28, 0), at: [0, 0.86, 0], color: (p) => p.c.shirt },
+    { geo: () => new THREE.CylinderGeometry(0.075, 0.075, 0.1, 8).translate(0, 0.05, 0), at: [0, 1.42, 0], color: (p) => p.c.skin },
+    { geo: () => new THREE.SphereGeometry(0.13, 14, 10), at: [0, 1.58, 0], color: (p) => p.c.skin },
+    { geo: () => new THREE.SphereGeometry(0.138, 14, 7, 0, Math.PI * 2, 0, Math.PI / 2), at: [0, 1.6, -0.012], color: (p) => p.c.hair },
+    { geo: () => new THREE.CapsuleGeometry(0.075, 0.71, 4, 8).translate(0, -0.43, 0), at: [-0.09, 0.88, 0], limb: 0, color: (p) => p.c.pants },
+    { geo: () => new THREE.CapsuleGeometry(0.075, 0.71, 4, 8).translate(0, -0.43, 0), at: [0.09, 0.88, 0], limb: 1, color: (p) => p.c.pants },
+    { geo: () => new THREE.CapsuleGeometry(0.055, 0.51, 4, 8).translate(0, -0.31, 0), at: [-0.24, 1.38, 0], limb: 2, out: -1, color: (p) => p.c.shirt },
+    { geo: () => new THREE.CapsuleGeometry(0.055, 0.51, 4, 8).translate(0, -0.31, 0), at: [0.24, 1.38, 0], limb: 3, out: 1, color: (p) => p.c.shirt },
+    { geo: () => new THREE.CylinderGeometry(0.012, 0.012, 0.85, 4).translate(0, 0.425, 0), at: [0.12, 1.3, 0], only: (p) => p.umbrella, color: () => "#222222" },
+    { geo: () => new THREE.ConeGeometry(0.62, 0.3, 10).translate(0, 0.15, 0), at: [0.12, 2.05, 0], only: (p) => p.umbrella, color: (p) => p.umbrella, unscaled: true },
+    { geo: () => new THREE.CylinderGeometry(0.22, 0.27, 0.95, 12).translate(0, -0.475, 0), at: [0, 1.4, 0], only: (p) => p.style === "coat", color: (p) => p.c.coat },
+    { geo: () => new THREE.CylinderGeometry(0.19, 0.3, 0.42, 12).translate(0, -0.21, 0), at: [0, 0.98, 0], only: (p) => p.style === "skirt", color: (p) => p.c.skirt },
+    { geo: () => new THREE.CapsuleGeometry(0.11, 0.32, 4, 8).translate(0, -0.2, 0), at: [0, 1.66, -0.08], only: (p) => p.longHair, color: (p) => p.c.hair },
+    { geo: () => new THREE.CylinderGeometry(0.15, 0.15, 0.07, 12).translate(0, 0.035, 0), at: [0, 1.69, 0], only: (p) => p.cap, color: (p) => p.c.cap },
+    { geo: () => new THREE.BoxGeometry(0.3, 0.4, 0.16).translate(0, -0.2, 0), at: [0, 1.36, -0.22], only: (p) => p.bag === "backpack", color: (p) => p.c.bag },
+    { geo: () => new THREE.BoxGeometry(0.08, 0.32, 0.3).translate(0, -0.16, 0), at: [0.3, 0.86, 0], only: (p) => p.bag === "tote" && !p.umbrella, color: (p) => p.c.bag },
+  ];
+  const tmpM = new THREE.Matrix4(), tmpL = new THREE.Matrix4(), tmpR = new THREE.Matrix4(), tmpS = new THREE.Matrix4();
+  function updatePeople() {
+    if (!crowdParts) return;
+    for (const { part, mesh: im, who } of crowdParts) {
+      who.forEach((p, i) => {
+        p.handle.updateWorldMatrix(true, false);
+        const s = p.s, sc = part.unscaled ? 1 : s;
+        tmpL.makeTranslation(part.at[0] * s, part.at[1] * s, part.at[2] * s);
+        if (part.limb !== undefined) { tmpR.makeRotationX(p.swing[part.limb]); tmpL.multiply(tmpR); if (part.out) { tmpR.makeRotationZ(part.out * p.armOut); tmpL.multiply(tmpR); } }
+        tmpS.makeScale(sc, sc, sc); tmpL.multiply(tmpS);
+        tmpM.multiplyMatrices(p.handle.matrixWorld, tmpL);
+        if (!p.handle.visible) tmpM.makeScale(0, 0, 0);
+        im.setMatrixAt(i, tmpM);
+      });
+      im.instanceMatrix.needsUpdate = true;
+    }
+  }
+  /** After build: create the crowd's instanced meshes. */
+  function finishPeople() {
+    if (!people.length || crowdParts) return;
+    crowdParts = [];
+    for (const part of PARTS) {
+      const who = part.only ? people.filter(part.only) : people;
+      if (!who.length) continue;
+      const im = new THREE.InstancedMesh(part.geo(), surface({ color: "#ffffff" }), who.length);
+      const col = new THREE.Color();
+      who.forEach((p, i) => im.setColorAt(i, col.set(part.color(p))));
+      im.instanceColor.needsUpdate = true;
+      im.castShadow = im.receiveShadow = true; im.frustumCulled = false;
+      im.userData.dynamic = true; im.userData.ignoreBounds = true;
+      scene.add(im); dynamic.push(im);
+      crowdParts.push({ part, mesh: im, who });
+    }
+    updatePeople();
+  }
 
   const canvasTexture = (w, h, fn, wrapIt = true) => {
     const c = document.createElement("canvas"); c.width = w; c.height = h;
@@ -29,12 +85,21 @@ export function createKit({ THREE, scene, look }) {
   const mesh = (geo, m) => new THREE.Mesh(geo, m);
 
   const kit = {
-    THREE, look, rnd,
+    THREE, look, rnd, aspect, frame,
     isNight: look.windows > 0.5,
 
     // ---- primitives ----
-    box: (w, h, d, m, [x, y, z], { ry = 0, rz = 0, rx = 0, glow = 0 } = {}) => place(mesh(new THREE.BoxGeometry(w, h, d), mat(m, glow)), [x, y + h / 2, z], ry, rz, rx),
-    cyl: (r, h, m, [x, y, z], { top = r, seg = 18, glow = 0 } = {}) => place(mesh(new THREE.CylinderGeometry(top, r, h, seg), mat(m, glow)), [x, y + h / 2, z]),
+    /** A box. With `sides`, the picture or colour `m` goes on the front face only (+z before turning) and `sides` on the other five. */
+    box(w, h, d, m, [x, y, z], { ry = 0, rz = 0, rx = 0, glow = 0, sides = null } = {}) {
+      if (sides == null) return place(mesh(new THREE.BoxGeometry(w, h, d), mat(m, glow)), [x, y + h / 2, z], ry, rz, rx);
+      const g = new THREE.BoxGeometry(w, h, d), face = g.groups.find((q) => q.materialIndex === 4), idx = Array.from(g.index.array);
+      const front = g.clone(); front.setIndex(idx.slice(face.start, face.start + face.count)); front.clearGroups();
+      const rest = g.clone(); rest.setIndex([...idx.slice(0, face.start), ...idx.slice(face.start + face.count)]); rest.clearGroups();
+      const holder = new THREE.Group(); holder.position.set(x, y + h / 2, z); holder.rotation.set(rx, ry, rz); parent.add(holder);
+      for (const [geo, mm] of [[rest, mat(sides)], [front, mat(m, glow)]]) { const o = mesh(geo, mm); o.castShadow = o.receiveShadow = true; holder.add(o); }
+      return holder;
+    },
+    cyl: (r, h, m, [x, y, z], { top = r, seg = 18, glow = 0, ry = 0 } = {}) => place(mesh(new THREE.CylinderGeometry(top, r, h, seg), mat(m, glow)), [x, y + h / 2, z], ry),
     cone: (r, h, m, [x, y, z], { seg = 24 } = {}) => place(mesh(new THREE.ConeGeometry(r, h, seg), mat(m)), [x, y + h / 2, z]),
     ball: (r, m, [x, y, z], { glow = 0, seg = 18 } = {}) => place(mesh(new THREE.SphereGeometry(r, seg, Math.max(8, seg - 6)), mat(m, glow)), [x, y, z]),
     dome: (r, m, [x, y, z], { seg = 36 } = {}) => place(mesh(new THREE.SphereGeometry(r, seg, 14, 0, Math.PI * 2, 0, Math.PI / 2), mat(m)), [x, y, z]),
@@ -59,7 +124,63 @@ export function createKit({ THREE, scene, look }) {
     // ---- paint ----
     /** A material painted on a canvas. Detail painted on one surface cannot flicker at long range. */
     paint(w, h, fn, { repeat = [1, 1], lit = null, poster = false } = {}) {
+      if (poster) usesPoster = true;
       return surface({ map: canvasTexture(w, h, fn), repeat, lit: lit ? canvasTexture(w, h, lit) : null, glow: poster ? 0.6 : 0 });
+    },
+    /**
+     * Any flat picture, written as SVG markup, as a material for any surface: posters, screens, labels, characters, logos, maps.
+     * The picture keeps the shape of its viewBox. `screen: true` makes it self-lit with no ink (screens, light boxes); `lit: true` makes it glow after dark;
+     * `poster: true` is a self-lit picture that is the poster itself, so the checks expect it to fill the flat frame.
+     */
+    svg(markup, { px = 1024, repeat = [1, 1], lit = false, poster = false, screen = false } = {}) {
+      if (typeof markup !== "string" || !/<svg[\s>]/i.test(markup)) throw new Error("kit.svg: give SVG markup as a string, starting with <svg ...>.");
+      if (/(href|src)\s*=\s*["'](?!#|data:)/i.test(markup)) throw new Error("kit.svg: the SVG links to an outside file. Scenes are self-contained: draw it, or embed it as a data: URL.");
+      let svgText = markup.includes("xmlns=") ? markup : markup.replace(/<svg/i, '<svg xmlns="http://www.w3.org/2000/svg"');
+      const vb = /viewBox\s*=\s*["']\s*[-\d.]+[\s,]+[-\d.]+[\s,]+([\d.]+)[\s,]+([\d.]+)/i.exec(svgText);
+      const ratio = vb ? +vb[2] / +vb[1] : 1, cw = Math.round(px), ch = Math.max(8, Math.round(px * ratio));
+      if (!/\swidth\s*=/.test(svgText.slice(0, svgText.indexOf(">")))) svgText = svgText.replace(/<svg/i, `<svg width="${cw}" height="${ch}"`);
+      const draw = (g) => { g.clearRect(0, 0, cw, ch); };
+      const map = canvasTexture(cw, ch, draw), glowMap = lit ? canvasTexture(cw, ch, draw) : null;
+      const sized = (text) => { let t = text.includes("xmlns=") ? text : text.replace(/<svg/i, '<svg xmlns="http://www.w3.org/2000/svg"'); if (!/\swidth\s*=/.test(t.slice(0, t.indexOf(">")))) t = t.replace(/<svg/i, `<svg width="${cw}" height="${ch}"`); return t; };
+      const paintInto = (text, targets) => { const img = new Image(); pending.push(new Promise((resolve, reject) => {
+        img.onload = () => { for (const t of targets) { const g = t.image.getContext("2d"); g.clearRect(0, 0, cw, ch); g.drawImage(img, 0, 0, cw, ch); t.needsUpdate = true; } resolve(); };
+        img.onerror = () => reject(new Error("kit.svg: the SVG could not be drawn. Check that the markup is valid XML (close every tag, escape & as &amp;)."));
+      })); img.src = "data:image/svg+xml;charset=utf-8," + encodeURIComponent(text); };
+      if (typeof lit === "string") { if (!/<svg[\s>]/i.test(lit)) throw new Error("kit.svg: `lit` is either true or a second SVG picture of what glows after dark."); paintInto(svgText, [map]); paintInto(sized(lit), [glowMap]); }
+      else paintInto(svgText, glowMap ? [map, glowMap] : [map]);
+      if (poster) usesPoster = true;
+      return surface({ map, repeat, lit: glowMap, glow: poster || screen ? 0.6 : 0 });
+    },
+    /**
+     * A picture file (PNG, JPEG or WebP) from the scene's own folder, as a material: painted illustrations, product shots, logos the user supplied.
+     * `screen`, `lit` and `poster` work as in svg(); `lit` may also name a second file of what glows after dark.
+     */
+    image(file, { repeat = [1, 1], lit = false, poster = false, screen = false } = {}) {
+      if (typeof file !== "string" || !/\.(png|jpe?g|webp)$/i.test(file)) throw new Error("kit.image: give the name of a .png, .jpg or .webp file in the scene's folder, e.g. k.image(\"art/poster.png\").");
+      if (/^[a-z]+:|^\/|\.\.(\/|\\)/i.test(file)) throw new Error(`kit.image: "${file}" must be a path inside the scene's folder. Scenes load nothing from the network.`);
+      const load = (name, needsAlpha) => {
+        const t = new THREE.Texture(); t.colorSpace = THREE.NoColorSpace; t.anisotropy = 16; t.generateMipmaps = true; t.minFilter = THREE.LinearMipmapLinearFilter; t.wrapS = t.wrapT = THREE.RepeatWrapping;
+        const img = new Image(), src = globalThis.__DR_ASSETS__?.[name] ?? `/scene/${name.split("/").map(encodeURIComponent).join("/")}`;
+        pending.push(new Promise((resolve, reject) => {
+          img.onload = () => { t.image = img; t.needsUpdate = true; resolve(); };
+          img.onerror = () => reject(new Error(`kit.image: could not load "${name}". Put the file in the scene's folder (next to scene.js) and check the name.`));
+        }));
+        img.src = src; return t;
+      };
+      const map = load(file), glowMap = lit ? load(typeof lit === "string" ? lit : file) : null;
+      if (poster) usesPoster = true;
+      return surface({ map, repeat, lit: glowMap, glow: poster || screen ? 0.6 : 0 });
+    },
+    /** A material of your own (not shared), for animating its colour or glow: `m.uniforms.uColor.value.set("#f00")`, `m.uniforms.uGlow.value = 1`. */
+    mat(color = "#ffffff", { glow = 0 } = {}) { return surface({ color, glow }); },
+    /** Runs fn(phase, wrapped, view) every frame, for changes that are not to an object (a material's colour or glow, a picture scrolling). */
+    tick(fn) { if (typeof fn !== "function") throw new Error("kit.tick needs a function."); ticks.push(fn); },
+    /** Scrolls a picture across its surface: `u` and `v` are whole turns per loop (tickers, conveyor belts, flowing water). */
+    scroll(material, { u = 1, v = 0 } = {}) {
+      if (!material?.uniforms?.uOffset) throw new Error("kit.scroll needs a material from k.svg, k.image, k.paint, k.sign or k.mat.");
+      if (!Number.isInteger(u) || !Number.isInteger(v)) throw new Error("kit.scroll: u and v must be whole numbers of turns per loop, so the loop closes.");
+      ticks.push((phase) => material.uniforms.uOffset.value.set((phase * u) % 1, (phase * v) % 1));
+      return material;
     },
     /** A sign whose text always fits. */
     sign(text, w, h, { bg = "#D8452E", fg = "#FFF7E6", font = FONT, weight = 800, glow = 0, border = null, vertical = false } = {}) {
@@ -81,14 +202,158 @@ export function createKit({ THREE, scene, look }) {
     },
     board(text, w, h, [x, y, z], opts = {}) { return kit.box(w, h, opts.thick ?? 0.12, kit.sign(text, w, h, opts), [x, y, z], { ry: opts.ry ?? 0 }); },
 
+    /** A solid cut-out from a THREE.Shape, standing on its base edge. */
+    extrude(shape, depth, m, [x, y, z], { ry = 0, rz = 0, bevel = 0 } = {}) {
+      const g = new THREE.ExtrudeGeometry(shape, bevel > 0 ? { depth, bevelEnabled: true, bevelSize: bevel, bevelThickness: bevel, bevelSegments: 3, curveSegments: 24 } : { depth, bevelEnabled: false }); g.translate(0, 0, -depth / 2);
+      return place(mesh(g, mat(m)), [x, y, z], ry, rz);
+    },
+    /**
+     * One painting cut across many buildings at different depths, each piece pre-distorted so they join when flat.
+     * Needs flatWidth to be a function of aspect, so the painting can be composed for each frame shape.
+     * paint(g, { W, H, say }) draws in metres with y up, from (-W/2, 0) to (W/2, H).
+     */
+    mural({ paint, scale = 44, bleed = 6, columns = [3.4, 5.6], centre = -35, bands = [[18, -12], [-50, -20], [-100, -58]], tops, walls = ["#23262F", "#2E2A36", "#1E2A36"], lits = ["#FFC873"], trim = "#6B6F7E" }) {
+      if (!frame) throw new Error("k.mural needs flatWidth to be a function of aspect, e.g. flatWidth: (a) => (a < 1 ? 30 : 64).");
+      if (typeof paint !== "function") throw new Error("k.mural needs a paint function.");
+      const W = frame.width, H = frame.height, cy = H / 2, camZ = centre + frame.distance;
+      const xmin = -W / 2 - bleed, ymax = H + bleed, c = document.createElement("canvas");
+      c.width = Math.round((W + 2 * bleed) * scale); c.height = Math.round((H + 2 * bleed) * scale);
+      const g = c.getContext("2d");
+      g.setTransform(scale, 0, 0, -scale, -xmin * scale, ymax * scale);
+      const say = (text, x, y, size, { color = "#fff", font = '"Helvetica Neue", Helvetica, Arial, sans-serif', weight = 900, italic = false, align = "center" } = {}) => {
+        g.save(); g.translate(x, y); g.scale(1, -1); g.font = `${italic ? "italic " : ""}${weight} ${size}px ${font}`; g.fillStyle = color; g.textAlign = align; g.textBaseline = "alphabetic"; g.fillText(text, 0, 0); g.restore();
+      };
+      paint(g, { W, H, say });
+      const cell = (xa, xb, top, z, depth) => {
+        const f = (camZ - z) / (camZ - centre), mid = (xa + xb) / 2, w = (xb - xa) * f + 0.05, h = cy + (top - cy) * f, x = mid * f;
+        const sx = (mid - w / f / 2 - xmin) * scale, sy = (ymax - top) * scale, sw = (w / f) * scale, sh = (top - (cy - cy / f)) * scale;
+        const cw = Math.max(16, Math.round(sw)), ch = Math.max(16, Math.round(sh));
+        kit.box(w, h, 0.3, kit.paint(cw, ch, (p) => p.drawImage(c, sx, sy, sw, sh, 0, 0, cw, ch), { poster: true }), [x, 0, z - 0.15]);
+        kit.building(w - 0.42, Math.max(1.6, h - 1.9), depth, [x, z - 0.3 - depth / 2], { wall: rnd.pick(walls), trim, storey: 3.1, bay: 2.1, lit: rnd.pick(lits) });
+      };
+      const half = W / 2 + 1.5, edges = [-half];
+      for (let e = -half; e < half;) { e = Math.min(half, e + rnd.range(columns[0], columns[1])); edges.push(e); }
+      for (let i = 0; i + 1 < edges.length; i++) {
+        const a = edges[i], b = edges[i + 1], m = (a + b) / 2;
+        const list = (tops ?? ((mx) => { const u = Math.abs(mx) / half, low = H * (0.1 + 0.26 * u) + rnd.range(0, H * 0.04), mid_ = Math.max(low + H * 0.2, H * (0.42 + 0.1 * u) + rnd.range(0, H * 0.06)); return [low, mid_, H + 2.4]; }))(m, i, H);
+        list.forEach((top, j) => { const band = bands[Math.min(j, bands.length - 1)]; cell(a, b, top, rnd.range(Math.min(...band), Math.max(...band)), rnd.range(4, 8)); });
+      }
+    },
+
+    // ---- sculpted solids ----
+    /** Any THREE geometry with a kit colour or material. Its origin sits at the position given. */
+    mesh(geometry, m, [x, y, z] = [0, 0, 0], { ry = 0, rz = 0, rx = 0, glow = 0 } = {}) { return place(mesh(geometry, mat(m, glow)), [x, y, z], ry, rz, rx); },
+    /**
+     * A smooth skin stretched over cross-sections, for bodies no box can make: a shoe, a car, a bottle, a hull.
+     * sections: [{ at, w, h, y, c, round }] sorted along the axis. w and h are the section's width and height,
+     * y its underside, c a sideways shift. round is 2 for an ellipse, higher for boxier; [top, bottom] sets each half.
+     */
+    loft(sections, m, { axis = "x", seg = 32, smooth = 6, glow = 0, at = [0, 0, 0] } = {}) {
+      if (!Array.isArray(sections) || sections.length < 2) throw new Error("kit.loft needs at least two sections: [{ at, w, h, y, c, round }, ...].");
+      if (!["x", "y", "z"].includes(axis)) throw new Error('kit.loft: axis must be "x", "y" or "z".');
+      const S = sections.map((s) => { const r = s.round ?? 2; return { at: s.at, w: s.w, h: s.h ?? s.w, y: s.y ?? 0, c: s.c ?? 0, rt: Array.isArray(r) ? r[0] : r, rb: Array.isArray(r) ? r[1] : r }; }).sort((a, b) => a.at - b.at);
+      for (const s of S) if (![s.at, s.w, s.h, s.y, s.c, s.rt, s.rb].every(Number.isFinite)) throw new Error("kit.loft: every section needs numbers for at and w.");
+      const ts = S.map((s) => s.at), f = {}; for (const key of ["w", "h", "y", "c", "rt", "rb"]) f[key] = curve(ts, S.map((s) => s[key]));
+      const n = (S.length - 1) * smooth + 1, ring = seg + 1, pos = [], uv = [], idx = [];
+      const put = (a, u, v) => (axis === "x" ? [a, v, u] : axis === "z" ? [u, v, a] : [u, a, v]);
+      const pw = (v, e) => Math.sign(v) * Math.abs(v) ** e;
+      for (let i = 0; i < n; i++) {
+        const span = Math.min(S.length - 2, Math.floor(i / smooth)), t = lerp(ts[span], ts[span + 1], (i - span * smooth) / smooth);
+        const w = Math.max(1e-3, f.w(t)), h = Math.max(1e-3, f.h(t)), base = axis === "y" ? 0 : f.y(t) + h / 2, c = f.c(t);
+        for (let j = 0; j <= seg; j++) {
+          const th = (j / seg) * Math.PI * 2, cx = Math.cos(th), sy = Math.sin(th), e = 2 / Math.max(0.5, sy >= 0 ? f.rt(t) : f.rb(t)), ex = 2 / Math.max(0.5, (f.rt(t) + f.rb(t)) / 2);
+          pos.push(...put(t, c + pw(cx, ex) * w / 2, base + pw(sy, e) * h / 2)); uv.push(i / (n - 1), j / seg);
+        }
+      }
+      for (let i = 0; i < n - 1; i++) for (let j = 0; j < seg; j++) { const a = i * ring + j, b = a + 1, c = a + ring, d = c + 1; idx.push(a, c, b, b, c, d); }
+      for (const [i, flip] of [[0, false], [n - 1, true]]) {
+        const t = ts[i ? ts.length - 1 : 0], h = Math.max(1e-3, f.h(t)), centre = pos.length / 3;
+        pos.push(...put(t, f.c(t), axis === "y" ? 0 : f.y(t) + h / 2)); uv.push(i ? 1 : 0, 0.5);
+        for (let j = 0; j < seg; j++) { const a = i * ring + j, b = a + 1; if (flip) idx.push(centre, b, a); else idx.push(centre, a, b); }
+      }
+      const build = () => { const g = new THREE.BufferGeometry(); g.setAttribute("position", new THREE.Float32BufferAttribute(pos, 3)); g.setAttribute("uv", new THREE.Float32BufferAttribute(uv, 2)); g.setIndex(idx); g.computeVertexNormals(); return g; };
+      let g = build();
+      { const k0 = Math.floor(n / 2) * ring + Math.round(seg / 4), k1 = Math.floor(n / 2) * ring + Math.round((3 * seg) / 4), N = g.attributes.normal, P = g.attributes.position;   // skin must face outwards
+        const out = (N.getX(k0) * (P.getX(k0) - P.getX(k1)) + N.getY(k0) * (P.getY(k0) - P.getY(k1)) + N.getZ(k0) * (P.getZ(k0) - P.getZ(k1)));
+        if (out < 0) { for (let i = 0; i < idx.length; i += 3) { const s = idx[i + 1]; idx[i + 1] = idx[i + 2]; idx[i + 2] = s; } g = build(); } }
+      { const N = g.attributes.normal; for (let i = 0; i < n; i++) { const a = i * ring, b = a + seg, x = N.getX(a) + N.getX(b), y = N.getY(a) + N.getY(b), z = N.getZ(a) + N.getZ(b), l = Math.hypot(x, y, z) || 1; N.setXYZ(a, x / l, y / l, z / l); N.setXYZ(b, x / l, y / l, z / l); } }
+      return place(mesh(g, mat(m, glow)), at);
+    },
+    /** A turned solid from a side profile of [radius, height] points: bottles, cups, vases, lamps, wheels. */
+    lathe(profile, m, [x, y, z] = [0, 0, 0], { seg = 48, smooth = 8, glow = 0 } = {}) {
+      if (!Array.isArray(profile) || profile.length < 2) throw new Error("kit.lathe needs a profile of [radius, height] points.");
+      const raw = profile.map(([r, h]) => new THREE.Vector2(Math.max(0, r), h));
+      const pts = smooth > 0 && raw.length > 2 ? new THREE.SplineCurve(raw).getPoints(raw.length * smooth).map((p) => new THREE.Vector2(Math.max(0, p.x), p.y)) : raw;
+      return place(mesh(new THREE.LatheGeometry(pts, seg), mat(m, glow)), [x, y, z]);
+    },
+    /** A round cord through points: laces, cables, pipes, handles, stripes. */
+    tube(points, r, m, { seg = 10, glow = 0, closed = false } = {}) {
+      if (!Array.isArray(points) || points.length < 2) throw new Error("kit.tube needs at least two [x, y, z] points.");
+      const c = new THREE.CatmullRomCurve3(points.map((p) => new THREE.Vector3(...p)), closed);
+      const o = mesh(new THREE.TubeGeometry(c, Math.max(12, points.length * 12), r, seg, closed), mat(m, glow));
+      o.castShadow = o.receiveShadow = true; parent.add(o); return o;
+    },
+
+    // ---- motion ----
+    /** 0 before a, 1 after b, a soft start and stop between. a and b are fractions of the loop. */
+    ease(p, a, b) { const u = clamp((p - a) / (b - a), 0, 1); return u * u * u * (u * (6 * u - 15) + 10); },
+    /** Rises over [a, b], holds, falls over [c, d]. The way anything appears, acts and leaves inside a loop. */
+    during(p, [a, b, c, d]) { return kit.ease(p, a, b) * (1 - kit.ease(p, c, d)); },
+    /** Moves, turns and grows an object for part of the loop, then puts it back. */
+    move(object, { by = [0, 0, 0], turn = 0, scale = 1, during = [0.3, 0.42, 0.62, 0.74] } = {}) {
+      const p0 = object.position.clone(), r0 = object.rotation.y, s0 = object.scale.clone();
+      return kit.animate(object, (phase) => { const v = kit.during(phase, during); object.position.set(p0.x + by[0] * v, p0.y + by[1] * v, p0.z + by[2] * v); object.rotation.y = r0 + turn * v; object.scale.copy(s0).multiplyScalar(lerp(1, scale, v)); });
+    },
+    /** A gentle hover: whole cycles per loop, so it always returns. */
+    float(object, { height = 0.12, cycles = 2, tilt = 0 } = {}) {
+      const y0 = object.position.y, z0 = object.rotation.z;
+      return kit.animate(object, (phase) => { const a = Math.sin(2 * Math.PI * cycles * phase); object.position.y = y0 + a * height; object.rotation.z = z0 + a * tilt; });
+    },
+    /** A caption on a leader line that grows out of a point, always turned to face the camera, then folds away. */
+    label(text, from, to, { during = [0.34, 0.44, 0.6, 0.7], h = 0.5, w, bg = "#F7F5EF", fg = "#101014", line = bg, glow = 0.7, weight = 800 } = {}) {
+      const width = w ?? Math.max(h * 1.8, [...text].length * h * 0.48);
+      const screen = to.length === 2, side = screen && to[0] < 0 ? -1 : 1, up = new THREE.Vector3(0, 1, 0);   // [right, up] keeps the caption beside the point from any angle
+      const A = new THREE.Vector3(...from), B = screen ? A.clone().add(new THREE.Vector3(to[0], to[1], 0)) : new THREE.Vector3(...to), len = Math.max(1e-3, A.distanceTo(B));
+      const lead = new THREE.Group(); lead.position.copy(A); lead.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), B.clone().sub(A).normalize()); parent.add(lead);
+      const rod = mesh(new THREE.CylinderGeometry(h * 0.035, h * 0.035, len, 6), mat(line, glow)); rod.position.y = len / 2; lead.add(rod);
+      const dot = mesh(new THREE.SphereGeometry(h * 0.11, 12, 8), mat(line, glow)); lead.add(dot);
+      const card = kit.group(() => kit.box(width, h, h * 0.08, kit.sign(text, width, h, { bg, fg, glow, weight }), [screen ? side * width / 2 : 0, -h / 2, 0]), [B.x, B.y, B.z]);
+      for (const o of [lead, card]) { o.userData.dynamic = true; dynamic.push(o); o.traverse((q) => { q.userData.ignoreBounds = true; q.castShadow = false; }); }
+      kit.animate(card, (phase, _wrapped, view) => {
+        const v = kit.during(phase, during), grow = clamp(v * 2, 0, 1), open = clamp(v * 2 - 1, 0, 1);
+        lead.visible = card.visible = v > 0.002; lead.scale.set(1, Math.max(grow, 1e-3), 1); dot.scale.set(1, 1 / Math.max(grow, 1e-3), 1);
+        const o = ((view?.orbit ?? 0) * Math.PI) / 180;
+        if (screen) { card.position.set(A.x + Math.cos(o) * to[0], A.y + to[1], A.z - Math.sin(o) * to[0]); lead.quaternion.setFromUnitVectors(up, card.position.clone().sub(A).normalize()); }
+        card.scale.set(Math.max(open, 1e-3), 1, 1); card.rotation.y = o;
+      });
+      return card;
+    },
+
     // ---- ground and light ----
     ground(w, d, m, [x, y, z] = [0, 0, 0]) {
       const o = mesh(new THREE.PlaneGeometry(w, d), mat(m)); o.rotation.x = -Math.PI / 2; o.position.set(x, y, z);
       o.receiveShadow = true; o.frustumCulled = false; o.userData.role = "ground"; parent.add(o); return o;
     },
-    /** A cel-shaded pool of coloured light. Only 16 can exist; extra ones are ignored with a warning. */
+    /** A cel-shaded pool of coloured light. Pools and lights share a budget of 32; extra ones are ignored with a warning. */
+    /** A point light: lights every surface within radius, softly, brighter on faces turned towards it. Shares the 32-light budget with pools. */
+    light([x, y, z], radius, color = "#FFD08A", strength = 1) {
+      if (!(radius > 0)) throw new Error("kit.light needs a radius in metres.");
+      if (pools.length >= 32) { warnings.push("more than 32 lights and pools: extras are ignored"); return; }
+      pools.push({ x, y, z, radius: -radius, rgb: hexRgb(color).map((v) => v * strength) });
+    },
+    /**
+     * Small things drifting through the air, drawn after the inked picture so they never get outlines: snow, embers, petals, dust, bubbles, confetti, sparks.
+     * fall: whole cycles top to bottom per loop (negative rises, 0 floats). sway: whole side-to-side cycles per loop.
+     */
+    particles({ count = 2000, area = null, height = null, size = 0.06, color = "#FFFFFF", fall = 2, sway = 1, drift = 0.3, opacity = 0.9, glow = false } = {}) {
+      if (!Number.isInteger(fall) || !Number.isInteger(sway)) throw new Error("kit.particles: fall and sway must be whole numbers of cycles per loop, so the loop closes.");
+      if (!(count > 0 && count <= 40000)) throw new Error("kit.particles: count must be between 1 and 40000.");
+      if (area && !(Array.isArray(area) && area.length === 4)) throw new Error("kit.particles: area is [xmin, xmax, zmin, zmax] in metres.");
+      if (height && !(Array.isArray(height) && height.length === 2)) throw new Error("kit.particles: height is [bottom, top] in metres.");
+      particles.push({ count, area, height, size, rgb: hexRgb(color), fall, sway, drift, opacity, glow, seed: 1 + particles.length * 7919 });
+    },
     pool([x, y, z], radius, color, strength = 1) {
-      if (pools.length >= 16) { warnings.push("more than 16 light pools: extras are ignored"); return; }
+      if (pools.length >= 32) { warnings.push("more than 32 light pools: extras are ignored"); return; }
       pools.push({ x, y, z, radius, rgb: hexRgb(color).map((v) => v * strength) });
     },
 
@@ -104,7 +369,13 @@ export function createKit({ THREE, scene, look }) {
       return object;
     },
     /** Runs fn(phase) every frame. phase goes 0..1 over the loop, so anything built on it loops by construction. */
-    animate(object, fn) { object.userData.dynamic = true; dynamic.push(object); ticks.push((phase) => fn(phase)); return object; },
+    /** Runs fn(phase, wrapped, view) every frame. Pass every object fn changes (one, or a list): anything not passed is merged into still geometry and frozen. */
+    animate(object, fn) {
+      const list = Array.isArray(object) ? object : [object];
+      if (!list.length || list.some((o) => !o || !o.isObject3D)) throw new Error("kit.animate needs an object, or a list of objects, that the animation changes.");
+      for (const o of list) { o.userData.dynamic = true; if (!dynamic.includes(o)) dynamic.push(o); }
+      ticks.push(fn); return object;
+    },
 
     // ---- props ----
     lamp([x, z], { h = 5, side = 1, color = "#2F4858", bulb = "#FFF0B8" } = {}) {
@@ -163,31 +434,33 @@ export function createKit({ THREE, scene, look }) {
         kit.bar(prev, p, 0.012, wire, { seg: 4 }); if (i < n) kit.ball(r, colors[i % colors.length], p, { glow: 1, seg: 10 }); prev = p;
       }
     },
+    /**
+     * A person. Returns an invisible handle you can place, move, swap and animate like any object.
+     * Every person in the scene is drawn together with a handful of instanced meshes, so crowds of hundreds stay fast.
+     */
     person(opts = {}) {
       const { at = [0, 0], face = 0, walk = null, h = 1.7, shirt, pants, skin, hair, umbrella = null } = opts;
       const shirts = ["#D8452E", "#3A6EA5", "#E9C46A", "#6A994E", "#F4F1DE", "#7B5EA7", "#264653", "#E76F51"], bottoms = ["#2B2D42", "#4A4E69", "#6B705C", "#22333B", "#8D99AE"], skins = ["#F2C9A5", "#D9A77F", "#A9734E", "#7E5236"], hairs = ["#1E1B18", "#4A2F1D", "#8A5A2B", "#BDBDBD"];
       const c = { shirt: shirt ?? rnd.pick(shirts), pants: pants ?? rnd.pick(bottoms), skin: skin ?? rnd.pick(skins), hair: hair ?? rnd.pick(hairs) };
-      const s = h / 1.7; const limbs = [];
-      const limb = (x, y, len, r, color) => { const g = new THREE.Group(); g.position.set(x, y, 0); parent.add(g); const m = mesh(new THREE.CapsuleGeometry(r, len - 2 * r, 4, 8), mat(color)); m.position.y = -len / 2; m.castShadow = m.receiveShadow = true; g.add(m); return g; };
-      const g = kit.group(() => {
-        kit.cyl(0.17 * s, 0.56 * s, c.shirt, [0, 0.86 * s, 0], { top: 0.2 * s, seg: 12 });
-        kit.cyl(0.075 * s, 0.1 * s, c.skin, [0, 1.42 * s, 0], { seg: 8 });
-        kit.ball(0.13 * s, c.skin, [0, 1.58 * s, 0], { seg: 14 });
-        kit.dome(0.138 * s, c.hair, [0, 1.6 * s, -0.012 * s], { seg: 14 });
-        limbs.push(limb(-0.09 * s, 0.88 * s, 0.86 * s, 0.075 * s, c.pants), limb(0.09 * s, 0.88 * s, 0.86 * s, 0.075 * s, c.pants));
-        limbs.push(limb(-0.24 * s, 1.38 * s, 0.62 * s, 0.055 * s, c.shirt), limb(0.24 * s, 1.38 * s, 0.62 * s, 0.055 * s, c.shirt));
-        if (umbrella) { kit.bar([0.12 * s, 1.3 * s, 0], [0.12 * s, 2.15 * s, 0], 0.012, "#222"); kit.cone(0.62, 0.3, umbrella, [0.12 * s, 2.05 * s, 0], { seg: 10 }); }
-      }, [at[0], 0, at[1]], face);
+      const ground = typeof opts.ground === "function" ? opts.ground : null, baseY = opts.y ?? 0;
+      const g = new THREE.Group(); g.position.set(at[0], ground ? ground(at[0], at[1]) : baseY, at[1]); g.rotation.y = face; parent.add(g);
+      const coats = ["#2B2D42", "#5A4632", "#7A7F8C", "#C9B48A", "#3D2B3A", "#1F3A4A", "#8C3B3B"];
+      const style = opts.style ?? rnd.pick(["casual", "casual", "coat", "coat", "skirt", "suit"]);
+      const p = { handle: g, s: h / 1.7, c: { ...c, coat: opts.coat ?? rnd.pick(coats), skirt: rnd.pick(["#2B2D42", "#8C3B5A", "#C9B48A", "#3A6EA5"]), bag: rnd.pick(["#3A2A20", "#1E1E24", "#C9B48A", "#8C3B3B", "#2F6FD8"]), cap: rnd.pick(["#1E1E24", "#D8452E", "#F4F1DE", "#3A6EA5"]) },
+        umbrella, swing: [0, 0, 0, 0], armOut: walk ? 0 : 0.05, style,
+        longHair: opts.longHair ?? rnd() < 0.35, cap: opts.cap ?? (!umbrella && rnd() < 0.18), bag: opts.bag ?? rnd.pick([null, null, "backpack", "tote", "tote"]) };
+      if (style === "suit") { p.c.shirt = rnd.pick(["#1E1E24", "#2B2D42", "#3A3F4A"]); p.c.pants = p.c.shirt; }
+      people.push(p);
       if (walk) {
         const steps = walk.steps ?? 8, seedPhase = rnd();
-        const dir = Math.atan2(walk.to[0] - at[0], walk.to[1] - at[1]); g.rotation.y = dir;
+        g.rotation.y = Math.atan2(walk.to[0] - at[0], walk.to[1] - at[1]);
         kit.animate(g, (phase, wrapped) => {
-          const u = wrapped; g.position.x = lerp(at[0], walk.to[0], u); g.position.z = lerp(at[1], walk.to[1], u);
-          const a = Math.sin(2 * Math.PI * (steps * phase + Math.round(seedPhase * 4) / 4));
-          limbs[0].rotation.x = a * 0.5; limbs[1].rotation.x = -a * 0.5; limbs[2].rotation.x = -a * 0.4; limbs[3].rotation.x = a * 0.4;
-          g.position.y = Math.abs(Math.cos(2 * Math.PI * (steps * phase + Math.round(seedPhase * 4) / 4))) * 0.025;
+          g.position.x = lerp(at[0], walk.to[0], wrapped); g.position.z = lerp(at[1], walk.to[1], wrapped);
+          const k2 = 2 * Math.PI * (steps * phase + Math.round(seedPhase * 4) / 4), a = Math.sin(k2);
+          p.swing[0] = a * 0.5; p.swing[1] = -a * 0.5; p.swing[2] = -a * 0.4; p.swing[3] = a * 0.4;
+          g.position.y = (ground ? ground(g.position.x, g.position.z) : baseY) + Math.abs(Math.cos(k2)) * 0.025;
         });
-      } else { limbs[2].rotation.z = -0.05; limbs[3].rotation.z = 0.05; }
+      }
       return g;
     },
     /** People crossing between two x limits, spread over a z range. */
@@ -227,11 +500,15 @@ export function createKit({ THREE, scene, look }) {
 
     // ---- internal ----
     _swaps: () => swaps,
+    _pending: () => Promise.all(pending),
     _dynamic: () => dynamic,
     _ticks: () => ticks,
     _pools: () => pools,
+    _particles: () => particles,
     _warnings: () => [...new Set(warnings)],
-    _runTicks(phase, wrapPhase) { const wrapped = fract(phase - wrapPhase); for (const t of ticks) t(phase, wrapped); },
+    _usesPoster: () => usesPoster,
+    _runTicks(phase, wrapPhase, view) { const wrapped = fract(phase - wrapPhase); for (const t of ticks) t(phase, wrapped, view); updatePeople(); },
+    _finish() { finishPeople(); },
   };
   return kit;
 }

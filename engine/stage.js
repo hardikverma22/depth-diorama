@@ -61,10 +61,14 @@ export function boot(def, options) {
   renderer.toneMapping = THREE.NoToneMapping; renderer.shadowMap.enabled = true; renderer.shadowMap.type = THREE.PCFShadowMap; renderer.outputColorSpace = THREE.LinearSRGBColorSpace;
   const scene = new THREE.Scene();
   const pipeline = new Pipeline(renderer, { width, height, supersample: q.supersample, look, shadowSize: q.shadow });
-  const kit = createKit({ THREE, scene, look });
+  const widthFor = typeof def.flatWidth === "function" ? def.flatWidth : null;
+  if (widthFor && !(widthFor(aspect) > 0 && widthFor(16 / 9) > 0)) throw new SceneError("scene.flatWidth must return a positive number of metres.");
+  const kitFrame = widthFor ? { width: widthFor(aspect), height: widthFor(aspect) / aspect, distance: widthFor(16 / 9) / 2 / Math.tan((1.6 * Math.PI) / 360) } : null;
+  const kit = createKit({ THREE, scene, look, aspect, frame: kitFrame });
 
   const built = def.build(kit);
   if (built && typeof built.then === "function") throw new SceneError("build(kit) must be synchronous; scenes load no remote assets.");
+  kit._finish();
 
   const boxes = worldBoxes(scene);
   if (!boxes.length) throw new SceneError("The scene built no visible objects. Add something besides the ground.");
@@ -76,23 +80,24 @@ export function boot(def, options) {
   const radius = Math.hypot(stage.xmax - stage.xmin, stage.zmax - stage.zmin, stage.top) / 2;
 
   const REF = 16 / 9, areaScale = Math.sqrt(aspect / REF);
-  if (def.flatWidth !== undefined && !(def.flatWidth > 0)) throw new SceneError("scene.flatWidth must be a positive number of metres.");
+  if (def.flatWidth !== undefined && !widthFor && !(def.flatWidth > 0)) throw new SceneError("scene.flatWidth must be a positive number of metres.");
   const forced = (frame) => ({ frame, x: (stage.xmin + stage.xmax) / 2, y: frame / aspect / 2, coverage: 1, reached: true });
   const fitted = fitFlatFrame(boxes, aspect);
-  const flat = def.flatWidth ? forced(aspect < 1 && fitted ? Math.min(def.flatWidth * areaScale, fitted.frame) : def.flatWidth * areaScale) : fitted;   // tall frames never trade the subject for empty sky
+  const flat = widthFor ? forced(widthFor(aspect)) : def.flatWidth ? forced(aspect < 1 && fitted ? Math.min(def.flatWidth * areaScale, fitted.frame) : def.flatWidth * areaScale) : fitted;   // tall frames never trade the subject for empty sky
   if (!flat) throw new SceneError("Could not frame the scene: nothing stands above the ground.");
-  const basis = def.flatWidth ?? fitFlatFrame(boxes, REF).frame;
+  const basis = widthFor ? widthFor(REF) : def.flatWidth ?? fitFlatFrame(boxes, REF).frame;
   const swaps = kit._swaps();
   const heroPos = swaps.length ? { x: swaps.reduce((s, w) => s + w.row[0], 0) / swaps.length, z: swaps.reduce((s, w) => s + (w.row[1] + w.alt[1]) / 2, 0) / swaps.length } : { x: 0, z: stage.zmax - (stage.zmax - stage.zmin) * 0.25 };
-  if (def.hero) { heroPos.x = def.hero.x ?? heroPos.x; heroPos.z = def.hero.z ?? heroPos.z; }
+  const heroDef = typeof def.hero === "function" ? def.hero(aspect) : def.hero;
+  if (heroDef) { heroPos.x = heroDef.x ?? heroPos.x; heroPos.z = heroDef.z ?? heroPos.z; heroPos.y = heroDef.y; }
   // Side walls near the hero would block a low corner view, so the corner shots climb just enough to see over them.
   const sideLine = (stage.xmin + stage.xmax) / 2, sideMass = boxes.filter((b) => Math.min(Math.abs(b.xmin - sideLine), Math.abs(b.xmax - sideLine)) > basis * 0.3 && b.zmin < heroPos.z + basis && b.zmax > heroPos.z - basis);
   const sideHeight = sideMass.reduce((m, b) => Math.max(m, b.ymax), 0);
   stage.swapFront = swaps.length ? Math.max(...swaps.flatMap((w) => [w.row[1], w.alt[1]])) : undefined;
   stage.clearPitch = (Math.atan(sideHeight / (basis * 0.75)) * 180) / Math.PI;
-  const shots = buildShots(stage, flat, aspect, heroPos, def.shots, basis, def.corners);
+  const shots = buildShots(stage, flat, aspect, heroPos, typeof def.shots === "function" ? def.shots(aspect) : def.shots, basis, def.corners);
   const choreography = options.choreography ?? def.choreography ?? "reveal";
-  const timeline = def.timeline ? def.timeline({ shots, buildTimeline }) : buildTimeline(shots, choreography, options.duration ?? def.duration);
+  const timeline = def.timeline ? def.timeline({ shots, buildTimeline }) : buildTimeline(shots, def.camera && !options.choreography ? def.camera : choreography, options.duration ?? def.duration);
   const loop = timeline.loop;
 
   const keep = new Set([...swaps.map((w) => w.object), ...kit._dynamic()]);
@@ -108,6 +113,7 @@ export function boot(def, options) {
   scene.add(sun, sun.target);
   pipeline.setStage(center, radius, kit._pools());
   pipeline.setRain(stage);
+  for (const p of kit._particles()) pipeline.addParticles(p, stage);
 
   const cam = new THREE.PerspectiveCamera(30, aspect, 1, 100);
   const camCorners = []; for (const x of [stage.xmin, stage.xmax]) for (const y of [0, stage.top]) for (const z of [stage.zmin, stage.zmax]) camCorners.push(new THREE.Vector3(x, y, z));
@@ -134,7 +140,7 @@ export function boot(def, options) {
   function pose(t) {
     const shot = timeline.at(t), phase = fract(t / loop);
     swaps.forEach((w) => w.apply(shot.swap));
-    kit._runTicks(phase, wrapPhase);
+    kit._runTicks(phase, wrapPhase, shot);
     return { shot, phase };
   }
   let wrapPhase = 0;
@@ -155,9 +161,15 @@ export function boot(def, options) {
   }
   { let best = -1; for (let i = 0; i < 200; i++) { const t = (i / 200) * loop; const m = screenMotion(t, t + loop / 400); if (m > best) { best = m; wrapPhase = i / 200; } } }
 
-  const SHUTTER = 0.9;
+  // A 180 degree shutter like a film camera, and blur capped at a fraction of the frame width so the fastest whip still reads.
+  const blurScale = def.motionBlur ?? 1;
+  if (!(blurScale >= 0 && blurScale <= 2)) throw new SceneError("scene.motionBlur must be a number from 0 (none) to 2 (double).");
+  const SHUTTER = 0.5 * blurScale, BLUR_CAP = 0.035 * blurScale;
   function frame(t, fps = 60, overrideK) {
-    const dt = 1 / fps, half = (dt * SHUTTER) / 2, px = screenMotion(t - half, t + half);
+    const dt = 1 / fps;
+    let half = (dt * SHUTTER) / 2, px = half > 0 ? screenMotion(t - half, t + half) : 0;
+    const cap = BLUR_CAP * width;
+    if (px > cap) { half *= cap / px; px = cap; }
     let k = overrideK ?? q.minK;
     if (overrideK === undefined) while (k < q.maxK && px / k > q.step) k *= 2;
     k = Math.min(k, q.maxK);
@@ -208,6 +220,15 @@ export function boot(def, options) {
       return { t, ...stats, orthoDiff: diffFraction(a, b, 40) };
     },
     beats() { return timeline.beats.map((b) => ({ t: b.t, name: b.name, role: b.role, lens: b.shot.lens, ...depthStats(Math.min(b.t, loop - 1e-3)) })); },
+    /** The camera's position all along the path, not just at the beats: moves between views can sweep through buildings. */
+    path() {
+      const hits = [], solid = boxes.filter((b) => Math.min(b.xmax - b.xmin, b.ymax - b.ymin, b.zmax - b.zmin) > 0.5);
+      for (let i = 0; i < 600; i++) {
+        const t = (i / 600) * loop; aim(pose(t).shot); const c = cam.position;
+        if (solid.some((b) => c.x > b.xmin && c.x < b.xmax && c.y > b.ymin && c.y < b.ymax && c.z > b.zmin && c.z < b.zmax)) hits.push(+t.toFixed(2));
+      }
+      return hits;
+    },
     swaps() {
       const issues = []; let prev = timeline.at(0), steps = 800;
       for (let i = 1; i <= steps; i++) {
@@ -224,8 +245,8 @@ export function boot(def, options) {
   };
 
   return {
-    frame, loop, width, height, measure, timeline,
-    info: () => ({ name: def.name ?? "untitled", look: look.name, loop, width, height, stage, flat, swaps: swaps.length, dynamic: isDynamic, drawCalls: renderer.info.render.calls, triangles: renderer.info.render.triangles, gpu: gpuName(renderer), warnings: kit._warnings() }),
+    frame, loop, width, height, measure, timeline, ready: kit._pending(),
+    info: () => ({ name: def.name ?? "untitled", look: look.name, loop, width, height, stage, flat, swaps: swaps.length, poster: kit._usesPoster(), dynamic: isDynamic, drawCalls: renderer.info.render.calls, triangles: renderer.info.render.triangles, gpu: gpuName(renderer), warnings: kit._warnings() }),
   };
 }
 

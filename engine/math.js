@@ -65,7 +65,8 @@ export function compileTimeline(beats, loop) {
   });
   const first = filled[0], last = filled[filled.length - 1];
   for (const k of [...LINEAR_KEYS, ...LOG_KEYS]) {
-    if (Math.abs(first[k] - last[k]) > 1e-6) throw new Error(`the loop does not close: first and last beat differ in ${k}`);
+    const gap = Math.abs(first[k] - last[k]);
+    if (k === "orbit" ? Math.abs(gap - 360 * Math.round(gap / 360)) > 1e-6 : gap > 1e-6) throw new Error(`the loop does not close: first and last beat differ in ${k}`);
   }
   const curves = {};
   for (const k of LINEAR_KEYS) curves[k] = curve(ts, filled.map((s) => s[k]));

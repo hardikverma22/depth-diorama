@@ -26,6 +26,13 @@ export const LOOKS = {
     haze: "#28224F", hazeAmount: 0.46, windows: 1, bloom: 1, wet: 1, rain: 1,
     saturation: 1.16, contrast: 1.07, vignette: 0.26,
   },
+  // A dark, clean room for one object: no clouds or stars, a glossy floor and soft glow.
+  studio: {
+    sky: { zenith: "#0E0F14", mid: "#1B1D26", horizon: "#3A3D4C", cloud: "#1B1D26", cloudShade: "#0E0F14", clouds: 0, stars: 0 },
+    sun: [0.45, 0.7, 0.6], shade: "#5A5F8C", ink: "#07080E", hatch: 0.6, tint: "#C9CEE8",
+    haze: "#1B1D26", hazeAmount: 0.3, windows: 1, bloom: 0.9, wet: 0.6, rain: 0,
+    saturation: 1.12, contrast: 1.06, vignette: 0.26,
+  },
 };
 
 /** Resolves a look name plus optional scene overrides into plain numbers for the shader. */

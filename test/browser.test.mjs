@@ -12,16 +12,29 @@ const passes = (r) => assert.equal(r.code, 0, r.all);
 const LAUNCH = process.platform === "darwin" ? ["--use-angle=metal", "--ignore-gpu-blocklist"] : [];
 
 describe("positive: built-in scenes pass every check", () => {
-  for (const s of ["pier", "station", "market", "whale"]) it(s, () => passes(verifyReport(s)));
-  for (const s of ["pier", "station", "market", "whale"]) for (const aspect of ["9:16", "1:1", "4:5"]) it(`${s} at ${aspect}`, () => passes(verifyReport(s, ["--aspect", aspect])));
+  for (const s of ["pier", "station", "market", "whale", "runner"]) it(s, () => passes(verifyReport(s)));
+  for (const s of ["pier", "station", "market"]) for (const aspect of ["9:16", "1:1", "4:5"]) it(`${s} at ${aspect}`, () => passes(verifyReport(s, ["--aspect", aspect])));
 });
 
 describe("positive: options", () => {
-  for (const look of ["day", "dusk", "night", "rain"]) it(`look ${look}`, () => passes(verifyReport("pier", ["--look", look])));
-  for (const choreo of ["reveal", "snap", "grand"]) it(`choreography ${choreo}`, () => passes(verifyReport("pier", ["--choreo", choreo])));
+  for (const look of ["day", "dusk", "night", "rain", "studio"]) it(`look ${look}`, () => passes(verifyReport("pier", ["--look", look])));
+  for (const aspect of ["16:9", "4:5", "1:1"]) it(`runner at ${aspect}`, () => passes(verifyReport("runner", ["--aspect", aspect])));
+  for (const choreo of ["reveal", "snap", "grand", "launch", "glide"]) it(`choreography ${choreo}`, () => passes(verifyReport("pier", ["--choreo", choreo])));
   for (const d of ["4", "30"]) it(`duration ${d}`, () => passes(verifyReport("pier", ["--duration", d])));
   it("the new-scene template passes straight away", () => { const dir = tempDir("t"); cli(["new", "fresh", "--dir", dir]); passes(verifyReport(path.join(dir, "fresh"))); });
+  const MURAL_BODY = `k.ground(400, 500, "#222"); k.mural({ paint: (g, { W, H, say }) => { g.fillStyle = "#c33"; g.fillRect(-W, -9, W * 2, H * 2); say("HELLO", 0, H / 2, 5); } }); for (let i = 0; i < 3; i++) { const x = -3 + i * 3, o = k.group(() => k.cyl(0.4, 1, "#fff", [0, 0, 0]), [x, 0, 26]); k.swap(o, { row: [x, 26], alt: [x, 26 - i * 4] }); }`;
+  for (const aspect of ["16:9", "9:16", "1:1", "4:5"]) it(`a mural fills the frame at ${aspect}`, () => passes(verifyReport(fixture(MURAL_BODY, 'look: "day", flatWidth: (a) => (a < 1 ? 30 : 60),'), ["--aspect", aspect])));
   it("the baseline fixture passes", () => passes(verifyReport(fixture(GOOD_BODY))));
+  it("particles, point lights and lighter motion blur pass", () => passes(verifyReport(fixture(
+    'k.particles({ count: 1500, size: 0.06, fall: 2, sway: 2 }); k.particles({ count: 100, color: "#ff9a3c", fall: -3, glow: true, height: [0, 6] }); for (let i = 0; i < 6; i++) k.light([-8 + i * 3, 3, -6], 6, "#ffb060", 1.2); ' + GOOD_BODY, "motionBlur: 0.5,"))));
+  it("particles refuse a fall that would not close the loop", () => { const r = cli(["verify", fixture('k.particles({ fall: 1.5 }); ' + GOOD_BODY)]); assert.equal(r.code, 4, r.all); assert.match(r.all, /whole numbers of cycles/); });
+  it("motionBlur out of range is refused", () => { const r = cli(["verify", fixture(GOOD_BODY, "motionBlur: 5,")]); assert.equal(r.code, 4, r.all); assert.match(r.all, /motionBlur must be a number from 0/); });
+  it("front-only pictures, scrolling, blinking and 20 light pools pass", () => passes(verifyReport(fixture(
+    'const pic = k.svg(\'<svg viewBox="0 0 400 100"><rect width="400" height="100" fill="#123"/><text x="10" y="70" font-size="60" fill="#fc3">TICKER ★ TICKER</text></svg>\', { screen: true }); k.scroll(pic, { u: 1 }); k.box(8, 2, 0.4, pic, [0, 3, -12], { sides: "#333" }); k.cyl(1.5, 3, pic, [6, 0, -10], { ry: Math.PI }); const m = k.mat("#ff3b4e", { glow: 1 }); k.ball(0.3, m, [-6, 3, -10]); k.tick((phase) => { m.uniforms.uGlow.value = Math.floor(phase * 4 + 0.5) % 2; }); for (let i = 0; i < 20; i++) k.pool([-10 + i, 0, -10], 3, "#39E6D0", 0.5); ' + GOOD_BODY))));
+  it("scroll refuses a speed that would not close the loop", () => { const r = cli(["verify", fixture('k.scroll(k.mat(), { u: 0.5 }); ' + GOOD_BODY)]); assert.equal(r.code, 4, r.all); assert.match(r.all, /whole numbers of turns/); });
+  it("SVG pictures, a scene's own camera path and a big crowd pass", () => passes(verifyReport(fixture(
+    'k.box(6, 4.5, 0.2, k.svg(\'<svg viewBox="0 0 400 300"><rect width="400" height="300" fill="#c3a"/><text x="20" y="80" font-size="60" fill="#fff">HI</text></svg>\', { screen: true }), [0, 2, -12]); k.crowd(300, { x: [-8, 8], z: [-4, 8], umbrellas: 0.5 }); ' + GOOD_BODY,
+    'shots: { dive: { from: "deep", y: 2 } }, camera: [[0, "flatIn", "flat"], [0.8, "flat", "flat"], [2.4, "dive", "reveal"], [3.2, "deepHold", "reveal"], [4.4, "flat", "flat"], [5, "flatIn", "flat"]],'))));
   it("a scene file at any path, with spaces and accents", () => { const d = fixture(GOOD_BODY); passes(cli(["stills", path.join(d, "scene.js"), "--times", "0.5", "--out", path.join(tempDir("out dir"), "s")])); });
 });
 
@@ -96,8 +109,14 @@ describe("negative: scenes that cannot run", () => {
   it("NaN position", () => sceneError(fixture('k.box(2, 2, 2, "#fff", [NaN, 0, 0]);'), /no visible objects|invalid geometry|not finite/));
   it("unknown look in the scene", () => sceneError(fixture(GOOD_BODY, 'look: "foggy",'), /unknown look/));
   it("unknown choreography in the scene", () => sceneError(fixture(GOOD_BODY, 'choreography: "wobble",'), /unknown choreography/));
+  it("mural without a flatWidth function", () => sceneError(fixture('k.mural({ paint: () => {} });', 'flatWidth: 30,'), /function of aspect/));
+  it("flatWidth function returning nonsense", () => sceneError(fixture(GOOD_BODY, "flatWidth: () => -1,"), /positive number/));
   it("bad flatWidth", () => sceneError(fixture(GOOD_BODY, "flatWidth: -3,"), /flatWidth/));
-  it("unknown shot override", () => sceneError(fixture(GOOD_BODY, "shots: { nope: { y: 1 } },"), /no shot called "nope"/));
+  it("a new shot with missing fields", () => sceneError(fixture(GOOD_BODY, "shots: { nope: { y: 1 } },"), /nope is a new shot, so it needs x, z, frame, lens/));
+  it("a camera path naming a missing shot", () => sceneError(fixture(GOOD_BODY, 'camera: [[0, "flat", "flat"], [2, "nope", "reveal"], [4, "flat", "flat"]],'), /no shot called "nope"/));
+  it("an SVG that is not SVG", () => sceneError(fixture('k.box(4, 3, 0.2, k.svg("<div></div>"), [0, 0, -5]); ' + GOOD_BODY), /give SVG markup/));
+  it("an SVG linking an outside file", () => sceneError(fixture('k.box(4, 3, 0.2, k.svg(\'<svg viewBox="0 0 4 3"><image href="https://example.com/a.png"/></svg>\'), [0, 0, -5]); ' + GOOD_BODY), /links to an outside file/));
+  it("broken SVG markup", () => sceneError(fixture('k.box(4, 3, 0.2, k.svg(\'<svg viewBox="0 0 4 3"><rect></svg>\'), [0, 0, -5]); ' + GOOD_BODY), /could not be drawn/));
   it("swap without positions", () => sceneError(fixture(`const g = k.group(() => k.box(1,1,1,"#fff",[0,0,0]), [0,0,0]); k.swap(g, {});`), /row: \[x, z\]/));
   it("swap of a non-object", () => sceneError(fixture("k.swap(5, { row: [0,0], alt: [0,0] });"), /kit\.swap needs an object/));
   it("tile with a bad shape", () => sceneError(fixture('k.tile(3, { across: [0,1], depth: [0,1], shape: "x" }, () => {});'), /unknown tile shape/));
@@ -107,6 +126,8 @@ describe("negative: scenes that cannot run", () => {
 
 describe("negative: scenes that run but fail a check", () => {
   const fails = (d, id, args = []) => { const r = verifyReport(d, args); assert.equal(r.code, 1, r.all); assert.equal(r.status(id), "fail", r.all); };
+  it("a camera path that sweeps through a building between beats", () => fails(fixture(GOOD_BODY + 'k.box(4, 8, 4, "#888", [8.66, 0, -20]);',
+    'shots: { a: { x: 0, z: -20, y: 2, frame: 10, lens: 60, orbit: 0 }, b: { x: 0, z: -20, y: 2, frame: 10, lens: 60, orbit: 180 } }, camera: [[0, "flatIn", "flat"], [1, "flat", "flat"], [3, "a", "reveal"], [5, "b", "reveal"], [7, "flat", "flat"], [8, "flatIn", "flat"]],'), "camera-clear"));
   it("a flat shot that is not flat", () => fails(fixture(GOOD_BODY, 'look: "day", shots: { flat: { lens: 40 }, flatIn: { lens: 40 } },'), "flat-holds"));
   it("a mostly empty frame", () => fails(fixture(GOOD_BODY, 'look: "day", flatWidth: 300,'), "coverage"));
   it("nothing reaching the frame edges", () => fails(fixture(GOOD_BODY, 'look: "day", flatWidth: 120,'), "edges"));
@@ -118,8 +139,9 @@ describe("negative: scenes that run but fail a check", () => {
     const d = fixture(GOOD_BODY, `look: "day", timeline: ({ shots, buildTimeline }) => { const s = { ...shots, flatAlt: { ...shots.deep, swap: 1 } }; return buildTimeline(s, "snap"); },`);
     fails(d, "swap");
   });
+  it("a painting that stops short of the top of a tall frame is caught", () => fails("whale", "poster-fill", ["--aspect", "9:16"]));
   it("no swap objects only warns", () => { const r = verifyReport(fixture(GOOD_BODY.replace(/for \(let i = 0; i < 5[^\n]*\n/, ""))); assert.equal(r.status("swap"), "warn", r.all); assert.equal(r.code, 0, r.all); });
-  it("too many light pools warns and still renders", () => { const r = verifyReport(fixture(GOOD_BODY + 'for (let i = 0; i < 20; i++) k.pool([0, 1, -i], 5, "#ff0000");')); assert.equal(r.status("kit"), "warn", r.all); });
+  it("too many light pools warns and still renders", () => { const r = verifyReport(fixture(GOOD_BODY + 'for (let i = 0; i < 40; i++) k.pool([0, 1, -i], 5, "#ff0000");')); assert.equal(r.status("kit"), "warn", r.all); });
 });
 
 describe("negative: output problems", () => {

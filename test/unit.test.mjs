@@ -71,14 +71,28 @@ describe("choreography", () => {
       const tl = buildTimeline(buildShots(stage, flat, 16 / 9, hero), name); let prev = tl.at(0);
       for (let i = 1; i <= 2000; i++) { const cur = tl.at((i / 2000) * tl.loop); if (Math.abs(cur.swap - prev.swap) > 1e-5) assert.ok(cur.lens <= FLAT_LENS_LIMIT, `swap at lens ${cur.lens}`); prev = cur; }
     });
-    it(`${name} ends where it starts`, () => { const tl = buildTimeline(buildShots(stage, flat, 16 / 9, hero), name), a = tl.at(0), b = tl.at(tl.loop - 1e-7); for (const k in a) assert.ok(Math.abs(a[k] - b[k]) < 1e-3, k); });
+    it(`${name} ends where it starts`, () => { const tl = buildTimeline(buildShots(stage, flat, 16 / 9, hero), name), a = tl.at(0), b = tl.at(tl.loop - 1e-7); for (const k in a) { const d = Math.abs(a[k] - b[k]); assert.ok((k === "orbit" ? Math.min(d % 360, 360 - (d % 360)) : d) < 1e-3, k); } });
   }
   it("keeps the same camera path in every aspect", () => { const a = buildShots(stage, flat, 16 / 9, hero).deep, b = buildShots(stage, flat, 9 / 16, hero, {}, 26).deep; assert.ok(Math.abs(shotDistance(a) - shotDistance(b)) < 1e-6); });
   it("turns the first corner away from the hero", () => { assert.ok(buildShots(stage, flat, 16 / 9, { x: 5, z: 0 }).cornerAOpen.orbit < 0); assert.ok(buildShots(stage, flat, 16 / 9, { x: -5, z: 0 }).cornerAOpen.orbit > 0); });
   it("climbs less steeply in a canyon", () => assert.ok(buildShots({ ...stage, clearPitch: 50 }, flat, 16 / 9, hero).cornerAOpen.pitch <= 30));
   it("scales to a custom duration", () => { const tl = buildTimeline(buildShots(stage, flat, 16 / 9, hero), "reveal", 20); assert.equal(tl.loop, 20); assert.equal(tl.beats.at(-1).t, 20); });
   it("rejects an unknown choreography", () => assert.throws(() => buildTimeline(buildShots(stage, flat, 1, hero), "wobble"), /unknown choreography/));
-  it("names available shots when an override is wrong", () => assert.throws(() => buildShots(stage, flat, 1, hero, { nope: {} }), /no shot called "nope"/));
+  it("says what a new shot is missing and lists the built-in shots", () => assert.throws(() => buildShots(stage, flat, 1, hero, { nope: { x: 0 } }), /nope is a new shot, so it needs z, y, frame, lens[\s\S]*Built-in shots: flat/));
+  it("rejects a shot derived from one that does not exist", () => assert.throws(() => buildShots(stage, flat, 1, hero, { dive: { from: "nope" } }), /no shot called "nope" to start from/));
+  it("derives a new shot from an existing one", () => { const s = buildShots(stage, flat, 16 / 9, hero, { dive: { from: "deep", y: 1.2 } }); assert.equal(s.dive.y, 1.2); assert.equal(s.dive.lens, s.deep.lens); });
+  it("accepts a shot defined outright", () => { const s = buildShots(stage, flat, 16 / 9, hero, { perch: { x: 0, z: -5, y: 4, frame: 12, lens: 50, pitch: 20 } }); assert.equal(s.perch.orbit, 0); assert.equal(s.perch.pitch, 20); });
+  it("films a scene's own camera path and closes the loop", () => {
+    const shots = buildShots(stage, flat, 16 / 9, hero, { dive: { from: "deep", y: 1.2 } });
+    const tl = buildTimeline(shots, [[0, "flatIn", "flat"], [1, "flat", "flat"], [3, "dive", "reveal"], [5, "flat", "flat"], [6, "flatIn", "flat"]]);
+    assert.equal(tl.loop, 6); const a = tl.at(0), b = tl.at(6 - 1e-7); for (const k in a) assert.ok(Math.abs(a[k] - b[k]) < 1e-3, k);
+  });
+  it("checks a scene's own camera path", () => {
+    const shots = buildShots(stage, flat, 16 / 9, hero);
+    assert.throws(() => buildTimeline(shots, [[0, "flat", "flat"], [2, "nope"], [4, "flat", "flat"]]), /no shot called "nope"/);
+    assert.throws(() => buildTimeline(shots, [[0, "deep", "reveal"], [2, "flat", "flat"], [4, "deep", "reveal"]]), /must start on a flat beat/);
+    assert.throws(() => buildTimeline(shots, [[0, "flat", "flat"], [3, "deep"], [2, "flat", "flat"]]), /times must be numbers that increase/);
+  });
   it("applies an override", () => assert.equal(buildShots(stage, flat, 1, hero, { high: { y: 3 } }).high.y, 3));
 });
 

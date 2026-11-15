@@ -3,14 +3,19 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "Turn any place into a seamless illustrated loop that reads flat, then opens into deep 3D.",
-  "bin": { "depth-diorama": "bin/depth-diorama.mjs" },
+  "description": "Type a sentence, get a looping illustrated film with a real moving camera: the agent writes a 3D scene, the engine films and checks it.",
+  "bin": {
+    "depth-diorama": "bin/depth-diorama.mjs"
+  },
   "scripts": {
     "setup": "node bin/depth-diorama.mjs setup",
-    "test": "node --test --test-force-exit --test-timeout=120000 test/unit.test.mjs test/video.test.mjs test/cli.test.mjs test/browser.test.mjs"
+    "test": "node --test --test-force-exit --test-timeout=120000 test/unit.test.mjs test/picture.test.mjs test/video.test.mjs test/cli.test.mjs test/browser.test.mjs"
   },
-  "engines": { "node": ">=20" },
+  "engines": {
+    "node": ">=20"
+  },
   "dependencies": {
+    "@huggingface/transformers": "3.8.1",
     "esbuild": "0.25.12",
     "playwright": "1.60.0",
     "three": "0.170.0"

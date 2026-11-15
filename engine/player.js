@@ -34,7 +34,7 @@ try {
   bar.addEventListener("input", () => { t = Math.min(+bar.value, dr.loop - 1e-3); dragging = true; draw(); });
   bar.addEventListener("change", () => { dragging = false; });
   addEventListener("keydown", (e) => { if (e.code === "Space" && e.target.tagName !== "BUTTON") { e.preventDefault(); playing = !playing; label(); } });
-  label(); draw(); requestAnimationFrame(tick);
+  label(); draw(); dr.ready.then(draw); requestAnimationFrame(tick);
   window.DR = dr;
 } catch (e) {
   errorBox.hidden = false;

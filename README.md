@@ -4,9 +4,13 @@
 
 **Type a sentence. Get back a film with a real moving camera.**
 
-<img src="demos/runner.gif" alt="A poster of a shoe opens into 3D; the camera circles the shoe as it lifts apart into labelled layers, then closes back to the poster" width="40%">
+</div>
 
-*"A running shoe that comes apart layer by layer." No photo, no 3D model, nothing drawn by hand.*
+https://github.com/user-attachments/assets/0a0fd135-feb1-4185-a07e-45f367de2203
+
+<div align="center">
+
+*Made from one sentence by a Claude Code agent with this skill. No photo, no 3D model, no image generator, nothing drawn by hand.*
 
 </div>
 
@@ -14,15 +18,23 @@
 
 ## One sentence each
 
-Each film below was made by a fresh Claude Code agent that was given only the sentence under it and this skill. It used no pictures, no templates and no image generator. It wrote the scene, reviewed its own stills over several rounds, and rendered once every check passed.
+Each film here was made by a fresh Claude Code agent given only the sentence with it and this skill. It used no pictures, no templates and no image generator. It wrote the scene, reviewed its own stills over several rounds, and rendered once every check passed.
 
-<img src="demos/ski-village.gif" alt="A poster of a snowy mountain village at night opens up; the camera dives down a lane of lit chalets, swoops over the piste with skiers and ends over a frozen pond with skaters and a sleigh" width="100%">
+**A ski village.** The film above.
 
 > A mountain ski village at night in falling snow: wooden chalets with glowing windows climbing the slope, a gondola lift with cabins gliding up to the peak, skiers coming down a lit piste, a small clock tower and a church spire in the square, string lights across the lane, a frozen pond where people skate, pine trees heavy with snow, and the mountain under a starry sky.
 
-<img src="demos/neon-crossing.gif" alt="A wall of neon screens and signs opens into a rainy scramble crossing; the camera dives over hundreds of umbrellas, rises over the crossing and looks up at a round glass tower" width="100%">
+**A neon crossing.**
+
+https://github.com/user-attachments/assets/02797ec3-6ce1-46a7-9783-e94c4267f5e4
 
 > A rainy scramble crossing in a Tokyo-style shopping district at dusk. Tall buildings covered in neon signs and giant video screens (a pop-idol ad and an anime robot ad), a lit gateway over the shopping street, a round glass tower on the corner, crowds with umbrellas crossing in every direction, buses and taxis waiting, traffic lights, and a wet road reflecting the neon.
+
+**A product, vertical for Reels.**
+
+https://github.com/user-attachments/assets/33702522-c28e-4194-a613-99a4614ead7d
+
+> A running shoe that comes apart layer by layer.
 
 <br>
 
